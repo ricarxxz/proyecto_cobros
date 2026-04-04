@@ -44,9 +44,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/auth/login',
-        ),
+        Uri.parse('https://proyecto-cobros.onrender.com/api/auth/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'email': _emailController.text,
@@ -182,9 +180,7 @@ class _RegistroUsuarioScreenState extends State<RegistroUsuarioScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/auth/registro',
-        ),
+        Uri.parse('https://proyecto-cobros.onrender.com/api/auth/registro'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'nombres': _nombreController.text,
@@ -324,7 +320,7 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
     try {
       final response = await http.get(
         Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/clientes/dia/$_diaSeleccionado',
+          'https://proyecto-cobros.onrender.com/api/clientes/dia/$_diaSeleccionado',
         ),
       );
       if (response.statusCode == 200) {
@@ -595,7 +591,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
     try {
       final response = await http.post(
         Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/clientes/registrar?usuario_id=${SessionGlobal.usuarioId}',
+          'https://proyecto-cobros.onrender.com/api/clientes/registrar?usuario_id=${SessionGlobal.usuarioId}',
         ),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -759,7 +755,7 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
     try {
       final response = await http.get(
         Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/clientes/buscar?cedula=${_cedulaController.text}',
+          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=${_cedulaController.text}',
         ),
       );
 
@@ -800,7 +796,7 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
     try {
       final response = await http.post(
         Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/prestamos/crear?usuario_id=${SessionGlobal.usuarioId}',
+          'https://proyecto-cobros.onrender.com/api/prestamos/crear?usuario_id=${SessionGlobal.usuarioId}',
         ),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -977,7 +973,7 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
       // Primero buscar el cliente
       final searchResponse = await http.get(
         Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/clientes/buscar?cedula=${_cedulaController.text}',
+          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=${_cedulaController.text}',
         ),
       );
 
@@ -997,7 +993,7 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
         // Luego obtener el reporte completo
         final reportResponse = await http.get(
           Uri.parse(
-            'https://african-endorsed-sign-vacuum.trycloudflare.com/api/reportes/cliente/$_clienteId',
+            'https://proyecto-cobros.onrender.com/api/reportes/cliente/$_clienteId',
           ),
         );
 
@@ -1174,7 +1170,7 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
 
       final response = await http.post(
         Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/cobros/registrar-pago?usuario_id=${SessionGlobal.usuarioId}',
+          'https://proyecto-cobros.onrender.com/api/cobros/registrar-pago?usuario_id=${SessionGlobal.usuarioId}',
         ),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'cuota_id': cuotaId, 'cantidad_pagada': montoPagado}),
@@ -1238,7 +1234,7 @@ class _BuscarClienteScreenState extends State<BuscarClienteScreen> {
     try {
       final response = await http.get(
         Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/clientes/buscar?cedula=${_busquedaController.text}',
+          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=${_busquedaController.text}',
         ),
       );
 
@@ -1306,7 +1302,7 @@ class _BuscarClienteScreenState extends State<BuscarClienteScreen> {
     try {
       final response = await http.get(
         Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/reportes/cliente/$clienteId',
+          'https://proyecto-cobros.onrender.com/api/reportes/cliente/$clienteId',
         ),
       );
 
@@ -1430,7 +1426,7 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
     try {
       final response = await http.get(
         Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/ingresos-gastos/resumen-dia?usuario_id=${SessionGlobal.usuarioId}',
+          'https://proyecto-cobros.onrender.com/api/ingresos-gastos/resumen-dia?usuario_id=${SessionGlobal.usuarioId}',
         ),
       );
 
@@ -1544,7 +1540,7 @@ class _CierreDiaScreenState extends State<CierreDiaScreen> {
     try {
       final response = await http.post(
         Uri.parse(
-          'https://african-endorsed-sign-vacuum.trycloudflare.com/api/cierre-dia/crear?usuario_id=${SessionGlobal.usuarioId}',
+          'https://proyecto-cobros.onrender.com/api/cierre-dia/crear?usuario_id=${SessionGlobal.usuarioId}',
         ),
       );
 
