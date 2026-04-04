@@ -1231,15 +1231,26 @@ class _BuscarClienteScreenState extends State<BuscarClienteScreen> {
   Future<void> _buscar() async {
     if (_busquedaController.text.isEmpty) return;
 
-    try {
-      final response = await http.get(
-        Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=${_busquedaController.text}',
-        ),
-      );
+    final busqueda = _busquedaController.text.trim();
+    String url;
+    // Si es numérico, buscar por cédula; si no, por nombre
+    if (RegExp(r'^\d+ $').hasMatch(busqueda)) {
+      url =
+          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=$busqueda';
+    } else {
+      url =
+          'https://proyecto-cobros.onrender.com/api/clientes/buscar?nombre=$busqueda';
+    }
 
+    try {
+      final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         setState(() => _clientes = jsonDecode(response.body));
+      } else {
+        setState(() => _clientes = []);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("No se encontraron clientes")));
       }
     } catch (e) {
       ScaffoldMessenger.of(
