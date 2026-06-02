@@ -51,7 +51,8 @@ class Cliente(Base):
     nombres = Column(String)
     cedula = Column(String, unique=True, index=True)
     telefono = Column(String)
-    usuario_id = Column(Integer)  # Quien lo registró
+    usuario_id = Column(Integer)  # Admin que lo registró
+    trabajador_id = Column(Integer, nullable=True)  # Trabajador asignado
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     activo = Column(Boolean, default=True)
     dia_cobro = Column(String, default="lunes")  # Día de cobro: lunes, martes, ...
@@ -210,16 +211,24 @@ def calcular_fecha_vencimiento(fecha_inicio: date, numero_cuota: int, frecuencia
 
 @app.post("/api/auth/registro")
 def registro_usuario(usuario: UsuarioRegistro, db: Session = Depends(get_db)):
+    # Solo permite registrar administradores (o el primer usuario será admin)
+    usuarios_existentes = db.query(Usuario).count()
+    if usuarios_existentes > 0 and usuario.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo se pueden registrar administradores. Contacte al admin para registrarse como trabajador")
+    
     # Verificar si el email ya existe
     db_usuario = db.query(Usuario).filter(Usuario.email == usuario.email).first()
     if db_usuario:
         raise HTTPException(status_code=400, detail="El email ya está registrado")
     
+    # Si es el primer usuario, será administrador
+    rol = RolUsuario.ADMINISTRADOR if usuarios_existentes == 0 else usuario.rol
+    
     nuevo_usuario = Usuario(
         nombre=usuario.nombres,
         email=usuario.email,
         password_hash=hash_password(usuario.password),
-        rol=usuario.rol
+        rol=rol
     )
     db.add(nuevo_usuario)
     db.commit()
@@ -229,7 +238,8 @@ def registro_usuario(usuario: UsuarioRegistro, db: Session = Depends(get_db)):
         "status": "success",
         "usuario_id": nuevo_usuario.id,
         "nombre": nuevo_usuario.nombre,
-        "rol": nuevo_usuario.rol
+        "rol": nuevo_usuario.rol,
+        "mensaje": f"Usuario registrado como {rol}"
     }
 
 @app.post("/api/auth/login")
@@ -247,10 +257,147 @@ def login(credenciales: UsuarioLogin, db: Session = Depends(get_db)):
         "rol": usuario.rol
     }
 
+# ============= ENDPOINTS: ADMINISTRACIÓN DE TRABAJADORES =============
+
+@app.post("/api/admin/registrar-trabajador")
+def registrar_trabajador(usuario: UsuarioRegistro, admin_id: int, db: Session = Depends(get_db)):
+    # Verificar que el usuario que solicita es administrador
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden registrar trabajadores")
+    
+    # Verificar si el email ya existe
+    db_usuario = db.query(Usuario).filter(Usuario.email == usuario.email).first()
+    if db_usuario:
+        raise HTTPException(status_code=400, detail="El email ya está registrado")
+    
+    # Crear nuevo trabajador (siempre como TRABAJADOR)
+    nuevo_trabajador = Usuario(
+        nombre=usuario.nombres,
+        email=usuario.email,
+        password_hash=hash_password(usuario.password),
+        rol=RolUsuario.TRABAJADOR
+    )
+    db.add(nuevo_trabajador)
+    db.commit()
+    db.refresh(nuevo_trabajador)
+    
+    return {
+        "status": "success",
+        "usuario_id": nuevo_trabajador.id,
+        "nombre": nuevo_trabajador.nombre,
+        "rol": nuevo_trabajador.rol,
+        "mensaje": f"Trabajador {usuario.nombres} registrado exitosamente"
+    }
+
+@app.get("/api/admin/listar-trabajadores")
+def listar_trabajadores(admin_id: int, db: Session = Depends(get_db)):
+    # Verificar que el usuario que solicita es administrador
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden acceder a esto")
+    
+    # Obtener todos los trabajadores
+    trabajadores = db.query(Usuario).filter(Usuario.rol == RolUsuario.TRABAJADOR).all()
+    
+    resultado = []
+    for t in trabajadores:
+        clientes_asignados = db.query(Cliente).filter(Cliente.trabajador_id == t.id).count()
+        resultado.append({
+            "id": t.id,
+            "nombre": t.nombre,
+            "email": t.email,
+            "activo": t.activo,
+            "fecha_creacion": t.fecha_creacion,
+            "clientes_asignados": clientes_asignados
+        })
+    
+    return resultado
+
+@app.post("/api/admin/asignar-cliente")
+def asignar_cliente(admin_id: int, cliente_id: int, trabajador_id: int, db: Session = Depends(get_db)):
+    # Verificar que el usuario que solicita es administrador
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden asignar clientes")
+    
+    # Verificar que el cliente existe
+    cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    
+    # Verificar que el trabajador existe
+    trabajador = db.query(Usuario).filter(
+        Usuario.id == trabajador_id,
+        Usuario.rol == RolUsuario.TRABAJADOR
+    ).first()
+    if not trabajador:
+        raise HTTPException(status_code=404, detail="Trabajador no encontrado")
+    
+    # Asignar cliente a trabajador
+    cliente.trabajador_id = trabajador_id
+    db.commit()
+    
+    return {
+        "status": "success",
+        "mensaje": f"Cliente {cliente.nombres} asignado a trabajador {trabajador.nombre}"
+    }
+
+@app.post("/api/admin/desasignar-cliente")
+def desasignar_cliente(admin_id: int, cliente_id: int, db: Session = Depends(get_db)):
+    # Verificar que el usuario que solicita es administrador
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden desasignar clientes")
+    
+    # Verificar que el cliente existe
+    cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    
+    # Desasignar cliente
+    cliente.trabajador_id = None
+    db.commit()
+    
+    return {
+        "status": "success",
+        "mensaje": f"Cliente {cliente.nombres} desasignado"
+    }
+
+@app.get("/api/admin/clientes-sin-asignar")
+def clientes_sin_asignar(admin_id: int, db: Session = Depends(get_db)):
+    # Verificar que el usuario que solicita es administrador
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden acceder a esto")
+    
+    # Obtener clientes sin asignar
+    clientes = db.query(Cliente).filter(
+        Cliente.trabajador_id == None,
+        Cliente.activo == True
+    ).all()
+    
+    return [
+        {
+            "id": c.id,
+            "nombres": c.nombres,
+            "cedula": c.cedula,
+            "telefono": c.telefono,
+            "dia_cobro": c.dia_cobro,
+            "fecha_creacion": c.fecha_creacion
+        }
+        for c in clientes
+    ]
+
 # ============= ENDPOINTS: CLIENTES =============
 
 @app.post("/api/clientes/registrar")
-def registrar_cliente(cliente: ClienteRegistro, usuario_id: int, db: Session = Depends(get_db)):
+def registrar_cliente(cliente: ClienteRegistro, admin_id: int, db: Session = Depends(get_db)):
+    # Verificar que el usuario que solicita es administrador
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden registrar clientes")
+    
     # Verificar si la cédula ya existe
     db_cliente = db.query(Cliente).filter(Cliente.cedula == cliente.cedula).first()
     if db_cliente and db_cliente.activo:
@@ -260,7 +407,8 @@ def registrar_cliente(cliente: ClienteRegistro, usuario_id: int, db: Session = D
         nombres=cliente.nombres,
         cedula=cliente.cedula,
         telefono=cliente.telefono,
-        usuario_id=usuario_id,
+        usuario_id=admin_id,
+        trabajador_id=None,  # Se asignará después
         dia_cobro=cliente.dia_cobro
     )
     db.add(nuevo_cliente)
@@ -270,7 +418,7 @@ def registrar_cliente(cliente: ClienteRegistro, usuario_id: int, db: Session = D
     return {
         "status": "success",
         "cliente_id": nuevo_cliente.id,
-        "mensaje": f"Cliente {cliente.nombres} registrado correctamente"
+        "mensaje": f"Cliente {cliente.nombres} registrado correctamente. Debe ser asignado a un trabajador."
     }
 
 @app.get("/api/clientes/buscar")
@@ -308,8 +456,13 @@ def obtener_cliente(cliente_id: int, db: Session = Depends(get_db)):
     }
 
 @app.get("/api/clientes/dia/{dia}")
-def clientes_por_dia(dia: str, db: Session = Depends(get_db)):
-    clientes = db.query(Cliente).filter(Cliente.dia_cobro == dia).all()
+def clientes_por_dia(dia: str, trabajador_id: int, db: Session = Depends(get_db)):
+    # Obtener clientes asignados al trabajador para ese día
+    clientes = db.query(Cliente).filter(
+        Cliente.trabajador_id == trabajador_id,
+        Cliente.dia_cobro == dia,
+        Cliente.activo == True
+    ).all()
     return [
         {
             "id": c.id,

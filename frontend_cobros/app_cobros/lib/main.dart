@@ -155,7 +155,6 @@ class _RegistroUsuarioScreenState extends State<RegistroUsuarioScreen> {
   final _nombreController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  String _rolSeleccionado = "trabajador";
   bool _isLoading = false;
 
   Future<void> _registro() async {
@@ -186,13 +185,15 @@ class _RegistroUsuarioScreenState extends State<RegistroUsuarioScreen> {
           'nombres': _nombreController.text,
           'email': _emailController.text,
           'password': _passwordController.text,
-          'rol': _rolSeleccionado,
+          'rol': 'administrador',
         }),
       );
 
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Registrado exitosamente")),
+          const SnackBar(
+            content: Text("Administrador registrado exitosamente"),
+          ),
         );
         Navigator.pop(context);
       } else {
@@ -213,12 +214,24 @@ class _RegistroUsuarioScreenState extends State<RegistroUsuarioScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Registrar Usuario")),
+      appBar: AppBar(title: const Text("Registrar Administrador")),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: SingleChildScrollView(
           child: Column(
             children: [
+              const Icon(
+                Icons.admin_panel_settings,
+                size: 80,
+                color: Colors.blue,
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                "Registro de Administrador",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
               TextField(
                 controller: _nombreController,
                 decoration: const InputDecoration(
@@ -246,36 +259,16 @@ class _RegistroUsuarioScreenState extends State<RegistroUsuarioScreen> {
                   prefixIcon: Icon(Icons.lock),
                 ),
               ),
-              const SizedBox(height: 15),
-              DropdownButtonFormField<String>(
-                value: _rolSeleccionado,
-                decoration: const InputDecoration(
-                  labelText: "Rol",
-                  border: OutlineInputBorder(),
-                ),
-                items: const [
-                  DropdownMenuItem(
-                    value: "trabajador",
-                    child: Text("Trabajador"),
-                  ),
-                  DropdownMenuItem(
-                    value: "administrador",
-                    child: Text("Administrador"),
-                  ),
-                ],
-                onChanged: (value) {
-                  setState(() => _rolSeleccionado = value ?? "trabajador");
-                },
-              ),
               const SizedBox(height: 30),
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _registro,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("Registrarse"),
+                      : const Text("Registrar Administrador"),
                 ),
               ),
             ],
@@ -320,7 +313,7 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
     try {
       final response = await http.get(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/clientes/dia/$_diaSeleccionado',
+          'https://proyecto-cobros.onrender.com/api/clientes/dia/$_diaSeleccionado?trabajador_id=${SessionGlobal.usuarioId}',
         ),
       );
       if (response.statusCode == 200) {
@@ -387,61 +380,104 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                         : 'Usuario',
                     style: const TextStyle(color: Colors.white, fontSize: 18),
                   ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Rol: ${SessionGlobal.rol}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
                 ],
               ),
             ),
-            ListTile(
-              leading: const Icon(Icons.person_add, color: Colors.green),
-              title: const Text('Registrar Cliente'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const RegistroClienteScreen(),
-                  ),
-                ).then((_) => _cargarClientesPorDia());
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.attach_money, color: Colors.blue),
-              title: const Text('Registrar Cobro'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const RegistroCobrosScreen(),
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.add_card, color: Colors.orange),
-              title: const Text('Nuevo Préstamo'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const NuevoPrestamoScreen(),
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.search, color: Colors.purple),
-              title: const Text('Buscar Cliente'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const BuscarClienteScreen(),
-                  ),
-                );
-              },
-            ),
+            // MENÚ SOLO PARA ADMINISTRADOR
+            if (SessionGlobal.rol == 'administrador') ...[
+              ListTile(
+                leading: const Icon(
+                  Icons.person_add_alt_1,
+                  color: Colors.purple,
+                ),
+                title: const Text('Registrar Trabajador'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const RegistroTrabajadorScreen(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.assignment, color: Colors.orange),
+                title: const Text('Asignar Clientes'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AsignarClientesScreen(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.person_add, color: Colors.green),
+                title: const Text('Registrar Cliente'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const RegistroClienteScreen(),
+                    ),
+                  ).then((_) => _cargarClientesPorDia());
+                },
+              ),
+              const Divider(),
+            ],
+            // MENÚ PARA TRABAJADOR
+            if (SessionGlobal.rol == 'trabajador') ...[
+              ListTile(
+                leading: const Icon(Icons.attach_money, color: Colors.blue),
+                title: const Text('Registrar Cobro'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const RegistroCobrosScreen(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.add_card, color: Colors.orange),
+                title: const Text('Nuevo Préstamo'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NuevoPrestamoScreen(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.search, color: Colors.purple),
+                title: const Text('Buscar Cliente'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const BuscarClienteScreen(),
+                    ),
+                  );
+                },
+              ),
+              const Divider(),
+            ],
+            // OPCIONES COMUNES
             ListTile(
               leading: const Icon(Icons.bar_chart, color: Colors.teal),
               title: const Text('Resumen del Día'),
@@ -526,6 +562,339 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
   }
 }
 
+// ============= REGISTRO DE TRABAJADOR (SOLO ADMIN) =============
+class RegistroTrabajadorScreen extends StatefulWidget {
+  const RegistroTrabajadorScreen({super.key});
+
+  @override
+  _RegistroTrabajadorScreenState createState() =>
+      _RegistroTrabajadorScreenState();
+}
+
+class _RegistroTrabajadorScreenState extends State<RegistroTrabajadorScreen> {
+  final _nombreController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+
+  Future<void> _registrarTrabajador() async {
+    if (_nombreController.text.isEmpty ||
+        _emailController.text.isEmpty ||
+        _passwordController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Complete todos los campos")),
+      );
+      return;
+    }
+
+    if (_passwordController.text.length > 72) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("La contraseña no puede tener más de 72 caracteres."),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/registrar-trabajador?admin_id=${SessionGlobal.usuarioId}',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'nombres': _nombreController.text,
+          'email': _emailController.text,
+          'password': _passwordController.text,
+          'rol': 'trabajador',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data['mensaje'] ?? 'Trabajador registrado')),
+        );
+        _nombreController.clear();
+        _emailController.clear();
+        _passwordController.clear();
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error['detail'] ?? 'Error en registro')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error de conexión: $e")));
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Registrar Trabajador"),
+        backgroundColor: Colors.purple,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              const Icon(
+                Icons.person_add_alt_1,
+                size: 80,
+                color: Colors.purple,
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                "Registrar Nuevo Trabajador",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _nombreController,
+                decoration: const InputDecoration(
+                  labelText: "Nombre Completo",
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.person),
+                ),
+              ),
+              const SizedBox(height: 15),
+              TextField(
+                controller: _emailController,
+                decoration: const InputDecoration(
+                  labelText: "Email",
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.email),
+                ),
+              ),
+              const SizedBox(height: 15),
+              TextField(
+                controller: _passwordController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: "Contraseña",
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock),
+                ),
+              ),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _registrarTrabajador,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.purple,
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("Registrar Trabajador"),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============= ASIGNAR CLIENTES A TRABAJADORES =============
+class AsignarClientesScreen extends StatefulWidget {
+  const AsignarClientesScreen({super.key});
+
+  @override
+  _AsignarClientesScreenState createState() => _AsignarClientesScreenState();
+}
+
+class _AsignarClientesScreenState extends State<AsignarClientesScreen> {
+  List<dynamic> _trabajadores = [];
+  List<dynamic> _clientesSinAsignar = [];
+  int? _trabajadorSeleccionado;
+  bool _cargando = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarDatos();
+  }
+
+  Future<void> _cargarDatos() async {
+    setState(() => _cargando = true);
+    try {
+      // Cargar trabajadores
+      final resTrabajadores = await http.get(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/listar-trabajadores?admin_id=${SessionGlobal.usuarioId}',
+        ),
+      );
+
+      // Cargar clientes sin asignar
+      final resClientes = await http.get(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/clientes-sin-asignar?admin_id=${SessionGlobal.usuarioId}',
+        ),
+      );
+
+      if (resTrabajadores.statusCode == 200 && resClientes.statusCode == 200) {
+        setState(() {
+          _trabajadores = jsonDecode(resTrabajadores.body);
+          _clientesSinAsignar = jsonDecode(resClientes.body);
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error al cargar datos: $e")));
+    } finally {
+      setState(() => _cargando = false);
+    }
+  }
+
+  Future<void> _asignarCliente(int clienteId) async {
+    if (_trabajadorSeleccionado == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Seleccione un trabajador")));
+      return;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/asignar-cliente?admin_id=${SessionGlobal.usuarioId}&cliente_id=$clienteId&trabajador_id=$_trabajadorSeleccionado',
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Cliente asignado correctamente")),
+        );
+        _cargarDatos();
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error['detail'] ?? 'Error al asignar')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Asignar Clientes"),
+        backgroundColor: Colors.orange,
+      ),
+      body: _cargando
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(15),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "Seleccionar Trabajador",
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            DropdownButton<int>(
+                              isExpanded: true,
+                              hint: const Text("Seleccione un trabajador"),
+                              value: _trabajadorSeleccionado,
+                              items: _trabajadores
+                                  .map<DropdownMenuItem<int>>(
+                                    (t) => DropdownMenuItem<int>(
+                                      value: t['id'],
+                                      child: Text(
+                                        "${t['nombre']} (${t['clientes_asignados']} clientes)",
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (value) {
+                                setState(() => _trabajadorSeleccionado = value);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      "Clientes sin Asignar",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _clientesSinAsignar.isEmpty
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(20),
+                              child: Text(
+                                "Todos los clientes están asignados",
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: _clientesSinAsignar.length,
+                            itemBuilder: (context, idx) {
+                              final cliente = _clientesSinAsignar[idx];
+                              return Card(
+                                child: ListTile(
+                                  title: Text(cliente['nombres']),
+                                  subtitle: Text(
+                                    'Cédula: ${cliente['cedula']} | Día: ${cliente['dia_cobro']}',
+                                  ),
+                                  trailing: ElevatedButton(
+                                    onPressed: _trabajadorSeleccionado == null
+                                        ? null
+                                        : () => _asignarCliente(cliente['id']),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.orange,
+                                    ),
+                                    child: const Text("Asignar"),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
+}
+
 class _MenuCard extends StatelessWidget {
   final IconData icon;
   final String titulo;
@@ -591,7 +960,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
     try {
       final response = await http.post(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/clientes/registrar?usuario_id=${SessionGlobal.usuarioId}',
+          'https://proyecto-cobros.onrender.com/api/clientes/registrar?admin_id=${SessionGlobal.usuarioId}',
         ),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -604,7 +973,11 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
 
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Cliente registrado exitosamente")),
+          const SnackBar(
+            content: Text(
+              "Cliente registrado exitosamente. Debe ser asignado a un trabajador.",
+            ),
+          ),
         );
         _nombresController.clear();
         _cedulaController.clear();
