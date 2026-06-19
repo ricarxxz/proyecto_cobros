@@ -966,7 +966,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
     try {
       final response = await http.post(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/clientes/registrar-con-prestamo',
+          'https://proyecto-cobros.onrender.com/api/clientes/registrar-con-prestamo?admin_id=${SessionGlobal.usuarioId}',
         ),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -978,7 +978,6 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
           'interes_porcentaje': _interes,
           'numero_cuotas': int.parse(_cuotasController.text),
           'frecuencia': _frecuencia,
-          'admin_id': SessionGlobal.usuarioId,
         }),
       );
 

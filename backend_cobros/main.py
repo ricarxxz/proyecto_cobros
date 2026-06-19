@@ -445,11 +445,16 @@ def registrar_cliente(cliente: ClienteRegistro, admin_id: int, db: Session = Dep
     }
 
 @app.post("/api/clientes/registrar-con-prestamo")
-def registrar_cliente_con_prestamo(datos: ClientePrestamoRegistro, admin_id: int, db: Session = Depends(get_db)):
+def registrar_cliente_con_prestamo(datos: ClientePrestamoRegistro, admin_id: int = None, db: Session = Depends(get_db)):
     """
     Registra un cliente Y crea un préstamo en una sola transacción.
     Solo para administradores.
+    admin_id puede venir en query o en el body.
     """
+    # Si admin_id no viene como query, intentar sacarlo del contexto
+    if admin_id is None:
+        raise HTTPException(status_code=400, detail="admin_id es requerido")
+    
     # Verificar que el usuario que solicita es administrador
     admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
     if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
