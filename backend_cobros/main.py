@@ -863,5 +863,6 @@ def reporte_cliente(cliente_id: int, db: Session = Depends(get_db)):
     }
 
 @app.get("/")
+@app.head("/")
 def inicio():
     return {"mensaje": "Servidor de Cobros Activo", "version": "1.0"}
