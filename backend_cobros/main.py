@@ -443,7 +443,20 @@ def buscar_cliente(cedula: str = None, nombre: str = None, db: Session = Depends
     if not clientes:
         raise HTTPException(status_code=404, detail="No se encontraron clientes")
     
-    return clientes
+    return [
+        {
+            "id": c.id,
+            "nombres": c.nombres,
+            "cedula": c.cedula,
+            "telefono": c.telefono,
+            "usuario_id": c.usuario_id,
+            "trabajador_id": c.trabajador_id,
+            "dia_cobro": c.dia_cobro,
+            "fecha_creacion": c.fecha_creacion,
+            "activo": c.activo
+        }
+        for c in clientes
+    ]
 
 @app.get("/api/clientes/{cliente_id}")
 def obtener_cliente(cliente_id: int, db: Session = Depends(get_db)):
@@ -458,8 +471,33 @@ def obtener_cliente(cliente_id: int, db: Session = Depends(get_db)):
     ).all()
     
     return {
-        "cliente": cliente,
-        "prestamos_activos": prestamos_activos
+        "cliente": {
+            "id": cliente.id,
+            "nombres": cliente.nombres,
+            "cedula": cliente.cedula,
+            "telefono": cliente.telefono,
+            "usuario_id": cliente.usuario_id,
+            "trabajador_id": cliente.trabajador_id,
+            "dia_cobro": cliente.dia_cobro,
+            "fecha_creacion": cliente.fecha_creacion,
+            "activo": cliente.activo
+        },
+        "prestamos_activos": [
+            {
+                "id": p.id,
+                "cliente_id": p.cliente_id,
+                "usuario_id": p.usuario_id,
+                "monto_prestado": p.monto_prestado,
+                "total_deuda": p.total_deuda,
+                "deuda_restante": p.deuda_restante,
+                "interes_porcentaje": p.interes_porcentaje,
+                "valor_cartulina": p.valor_cartulina,
+                "fecha_prestamo": p.fecha_prestamo,
+                "pagado": p.pagado,
+                "fecha_finalizacion": p.fecha_finalizacion
+            }
+            for p in prestamos_activos
+        ]
     }
 
 @app.get("/api/clientes/dia/{dia}")
@@ -565,8 +603,34 @@ def obtener_prestamo(prestamo_id: int, db: Session = Depends(get_db)):
     cuotas = db.query(Cuota).filter(Cuota.prestamo_id == prestamo_id).all()
     
     return {
-        "prestamo": prestamo,
-        "cuotas": cuotas
+        "prestamo": {
+            "id": prestamo.id,
+            "cliente_id": prestamo.cliente_id,
+            "usuario_id": prestamo.usuario_id,
+            "monto_prestado": prestamo.monto_prestado,
+            "total_deuda": prestamo.total_deuda,
+            "deuda_restante": prestamo.deuda_restante,
+            "interes_porcentaje": prestamo.interes_porcentaje,
+            "valor_cartulina": prestamo.valor_cartulina,
+            "fecha_prestamo": prestamo.fecha_prestamo,
+            "pagado": prestamo.pagado,
+            "fecha_finalizacion": prestamo.fecha_finalizacion
+        },
+        "cuotas": [
+            {
+                "id": c.id,
+                "prestamo_id": c.prestamo_id,
+                "numero_cuota": c.numero_cuota,
+                "valor_cuota": c.valor_cuota,
+                "fecha_vencimiento": c.fecha_vencimiento,
+                "pagada": c.pagada,
+                "valor_pagado": c.valor_pagado,
+                "valor_pendiente": c.valor_pendiente,
+                "atrasada": c.atrasada,
+                "fecha_creacion": c.fecha_creacion
+            }
+            for c in cuotas
+        ]
     }
 
 # ============= ENDPOINTS: COBROS =============
@@ -613,7 +677,7 @@ def registrar_pago(pago: PagoCuotaRegistro, usuario_id: int, db: Session = Depen
         db.add(ingreso)
     
     ingreso.ingreso_cuotas += pago.cantidad_pagada
-    ingreso.total_ingresos = ingreso.ingreso_cuotas + ingreso.ingreso_cartilinas
+    ingreso.total_ingresos = ingreso.ingreso_cuotas + ingreso.ingreso_cartulinas
     
     db.commit()
     
@@ -701,7 +765,7 @@ def crear_cierre_dia(usuario_id: int, fecha: date = None, db: Session = Depends(
         usuario_id=usuario_id,
         fecha_cierre=fecha,
         total_cuotas_pagadas=ingreso.ingreso_cuotas if ingreso else 0.0,
-        total_cartilinas=ingreso.ingreso_cartilinas if ingreso else 0.0,
+        total_cartilinas=ingreso.ingreso_cartulinas if ingreso else 0.0,
         total_gastos=total_gastos,
         saldo_neto=total_ingresos - total_gastos
     )
@@ -731,7 +795,20 @@ def historial_cierres(usuario_id: int, db: Session = Depends(get_db)):
             CierreDia.usuario_id == usuario_id
         ).order_by(CierreDia.fecha_cierre.desc()).all()
     
-    return cierres
+    return [
+        {
+            "id": c.id,
+            "usuario_id": c.usuario_id,
+            "fecha_cierre": c.fecha_cierre,
+            "total_cuotas_pagadas": c.total_cuotas_pagadas,
+            "total_cartilinas": c.total_cartilinas,
+            "total_gastos": c.total_gastos,
+            "saldo_neto": c.saldo_neto,
+            "fecha_creacion": c.fecha_creacion,
+            "cerrado": c.cerrado
+        }
+        for c in cierres
+    ]
 
 # ============= ENDPOINTS: INFORMES =============
 
@@ -765,7 +842,17 @@ def reporte_cliente(cliente_id: int, db: Session = Depends(get_db)):
         })
     
     return {
-        "cliente": cliente,
+        "cliente": {
+            "id": cliente.id,
+            "nombres": cliente.nombres,
+            "cedula": cliente.cedula,
+            "telefono": cliente.telefono,
+            "usuario_id": cliente.usuario_id,
+            "trabajador_id": cliente.trabajador_id,
+            "dia_cobro": cliente.dia_cobro,
+            "fecha_creacion": cliente.fecha_creacion,
+            "activo": cliente.activo
+        },
         "historial_prestamos": historial,
         "resumen": {
             "total_prestamos": len(prestamos),
