@@ -8,10 +8,17 @@ from pydantic import BaseModel
 from datetime import datetime, date, timedelta
 from passlib.context import CryptContext
 import enum
+import os
+from dotenv import load_dotenv
 
+# Cargar variables de entorno
+load_dotenv()
 
 # 1. Configuración de la Base de Datos (PostgreSQL Neon)
-DATABASE_URL = "postgresql://neondb_owner:npg_wEkTUn6NYb7B@ep-bold-breeze-amsykmxb-pooler.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://neondb_owner:npg_wEkTUn6NYb7B@ep-bold-breeze-amsykmxb-pooler.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+)
 
 engine = create_engine(
     DATABASE_URL,
