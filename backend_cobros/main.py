@@ -150,6 +150,16 @@ class ClienteRegistro(BaseModel):
     telefono: str
     dia_cobro: str = "lunes"
 
+class ClientePrestamoRegistro(BaseModel):
+    nombres: str
+    cedula: str
+    telefono: str
+    dia_cobro: str = "lunes"
+    monto_prestado: float
+    interes_porcentaje: float = 20.0
+    numero_cuotas: int
+    frecuencia: FrecuenciaCuota
+
 class ClienteResponse(BaseModel):
     id: int
     nombres: str
@@ -434,9 +444,111 @@ def registrar_cliente(cliente: ClienteRegistro, admin_id: int, db: Session = Dep
         "mensaje": f"Cliente {cliente.nombres} registrado correctamente. Debe ser asignado a un trabajador."
     }
 
+@app.post("/api/clientes/registrar-con-prestamo")
+def registrar_cliente_con_prestamo(datos: ClientePrestamoRegistro, admin_id: int, db: Session = Depends(get_db)):
+    """
+    Registra un cliente Y crea un préstamo en una sola transacción.
+    Solo para administradores.
+    """
+    # Verificar que el usuario que solicita es administrador
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden registrar clientes")
+    
+    # Verificar si la cédula ya existe
+    db_cliente = db.query(Cliente).filter(Cliente.cedula == datos.cedula).first()
+    if db_cliente and db_cliente.activo:
+        raise HTTPException(status_code=400, detail="Cliente con esta cédula ya existe")
+    
+    # Crear cliente
+    nuevo_cliente = Cliente(
+        nombres=datos.nombres,
+        cedula=datos.cedula,
+        telefono=datos.telefono,
+        usuario_id=admin_id,
+        trabajador_id=None,
+        dia_cobro=datos.dia_cobro
+    )
+    db.add(nuevo_cliente)
+    db.commit()
+    db.refresh(nuevo_cliente)
+    
+    # Crear préstamo
+    interes = datos.monto_prestado * (datos.interes_porcentaje / 100)
+    total_deuda = datos.monto_prestado + interes
+    valor_cartulina = (datos.monto_prestado / 100000) * 5000
+    valor_cuota = total_deuda / datos.numero_cuotas
+    
+    nuevo_prestamo = Prestamo(
+        cliente_id=nuevo_cliente.id,
+        usuario_id=admin_id,
+        monto_prestado=datos.monto_prestado,
+        total_deuda=total_deuda,
+        deuda_restante=total_deuda,
+        interes_porcentaje=datos.interes_porcentaje,
+        valor_cartulina=valor_cartulina
+    )
+    db.add(nuevo_prestamo)
+    db.commit()
+    db.refresh(nuevo_prestamo)
+    
+    # Crear cuotas
+    for i in range(1, datos.numero_cuotas + 1):
+        fecha_vencimiento = calcular_fecha_vencimiento(
+            date.today(), i, datos.frecuencia
+        )
+        cuota = Cuota(
+            prestamo_id=nuevo_prestamo.id,
+            numero_cuota=i,
+            valor_cuota=valor_cuota,
+            fecha_vencimiento=fecha_vencimiento,
+            valor_pendiente=valor_cuota
+        )
+        db.add(cuota)
+    db.commit()
+    
+    # Registrar ingreso de cartulina
+    ingreso = db.query(IngresoDia).filter(
+        IngresoDia.usuario_id == admin_id,
+        IngresoDia.fecha == date.today()
+    ).first()
+    
+    if not ingreso:
+        ingreso = IngresoDia(usuario_id=admin_id)
+        db.add(ingreso)
+
+    if ingreso.ingreso_cartulinas is None:
+        ingreso.ingreso_cartulinas = 0.0
+    ingreso.ingreso_cartulinas += valor_cartulina
+    if ingreso.ingreso_cuotas is None:
+        ingreso.ingreso_cuotas = 0.0
+    ingreso.total_ingresos = ingreso.ingreso_cuotas + ingreso.ingreso_cartulinas
+    db.commit()
+    
+    return {
+        "status": "success",
+        "cliente_id": nuevo_cliente.id,
+        "prestamo_id": nuevo_prestamo.id,
+        "total_deuda": total_deuda,
+        "valor_cartulina": valor_cartulina,
+        "valor_cuota": valor_cuota,
+        "numero_cuotas": datos.numero_cuotas,
+        "mensaje": f"Cliente {datos.nombres} registrado con préstamo de ${datos.monto_prestado}"
+    }
+
 @app.get("/api/clientes/buscar")
-def buscar_cliente(cedula: str = None, nombre: str = None, db: Session = Depends(get_db)):
+def buscar_cliente(cedula: str = None, nombre: str = None, usuario_id: int = None, db: Session = Depends(get_db)):
+    """
+    Si usuario_id es trabajador, solo busca entre sus clientes asignados.
+    Si es admin, busca entre todos los clientes.
+    """
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first() if usuario_id else None
+    
     query = db.query(Cliente).filter(Cliente.activo == True)
+    
+    # Si es trabajador, filtrar solo sus clientes
+    if usuario and usuario.rol == RolUsuario.TRABAJADOR:
+        query = query.filter(Cliente.trabajador_id == usuario_id)
     
     if cedula:
         query = query.filter(Cliente.cedula == cedula)
@@ -465,10 +577,22 @@ def buscar_cliente(cedula: str = None, nombre: str = None, db: Session = Depends
     ]
 
 @app.get("/api/clientes/{cliente_id}")
-def obtener_cliente(cliente_id: int, db: Session = Depends(get_db)):
+def obtener_cliente(cliente_id: int, usuario_id: int = None, db: Session = Depends(get_db)):
+    """
+    Obtiene detalles de un cliente.
+    Los trabajadores solo pueden ver sus clientes asignados.
+    """
     cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    
+    # Si se proporciona usuario_id, verificar permisos
+    if usuario_id:
+        usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        if usuario and usuario.rol == RolUsuario.TRABAJADOR:
+            # Trabajador solo puede ver sus clientes
+            if cliente.trabajador_id != usuario_id:
+                raise HTTPException(status_code=403, detail="No tienes permiso para ver este cliente")
     
     # Obtener préstamos activos del cliente
     prestamos_activos = db.query(Prestamo).filter(
@@ -507,13 +631,25 @@ def obtener_cliente(cliente_id: int, db: Session = Depends(get_db)):
     }
 
 @app.get("/api/clientes/dia/{dia}")
-def clientes_por_dia(dia: str, trabajador_id: int, db: Session = Depends(get_db)):
+def clientes_por_dia(dia: str, trabajador_id: int = None, usuario_id: int = None, db: Session = Depends(get_db)):
+    """
+    Obtiene clientes para un día específico.
+    Si es trabajador, solo obtiene sus clientes.
+    Si es admin y proporciona trabajador_id, obtiene los clientes de ese trabajador.
+    """
+    # Usar trabajador_id o usuario_id para filtrar
+    id_trabajador = trabajador_id or usuario_id
+    
+    if not id_trabajador:
+        raise HTTPException(status_code=400, detail="Debe proporcionar trabajador_id o usuario_id")
+    
     # Obtener clientes asignados al trabajador para ese día
     clientes = db.query(Cliente).filter(
-        Cliente.trabajador_id == trabajador_id,
+        Cliente.trabajador_id == id_trabajador,
         Cliente.dia_cobro == dia,
         Cliente.activo == True
     ).all()
+    
     return [
         {
             "id": c.id,
@@ -530,6 +666,11 @@ def clientes_por_dia(dia: str, trabajador_id: int, db: Session = Depends(get_db)
 
 @app.post("/api/prestamos/crear")
 def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = Depends(get_db)):
+    # Solo admins pueden crear préstamos normales
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario or usuario.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden crear préstamos")
+    
     # Verificar que el cliente existe
     cliente = db.query(Cliente).filter(Cliente.id == prestamo.cliente_id).first()
     if not cliente:
@@ -600,6 +741,100 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
         "mensaje": f"Préstamo de ${prestamo.monto_prestado} creado para {cliente.nombres}"
     }
 
+@app.post("/api/prestamos/renovar")
+def renovar_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = Depends(get_db)):
+    """
+    Los trabajadores pueden renovar un préstamo existente.
+    Crea un nuevo préstamo marcando el anterior como pagado.
+    """
+    # Obtener el usuario (trabajador)
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Verificar que el cliente existe y está asignado a este trabajador
+    cliente = db.query(Cliente).filter(Cliente.id == prestamo.cliente_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    
+    if cliente.trabajador_id != usuario_id:
+        raise HTTPException(status_code=403, detail="No tienes permiso para renovar préstamos de este cliente")
+    
+    # Obtener el préstamo anterior (el más reciente sin pagarse completamente)
+    prestamo_anterior = db.query(Prestamo).filter(
+        Prestamo.cliente_id == prestamo.cliente_id,
+        Prestamo.pagado == False
+    ).order_by(Prestamo.fecha_prestamo.desc()).first()
+    
+    # Si hay un préstamo anterior, marcarlo como pagado
+    if prestamo_anterior:
+        prestamo_anterior.pagado = True
+        prestamo_anterior.fecha_finalizacion = datetime.utcnow()
+    
+    # Cálculos para nuevo préstamo
+    interes = prestamo.monto_prestado * (prestamo.interes_porcentaje / 100)
+    total_deuda = prestamo.monto_prestado + interes
+    valor_cartulina = (prestamo.monto_prestado / 100000) * 5000
+    valor_cuota = total_deuda / prestamo.numero_cuotas
+    
+    # Crear nuevo préstamo
+    nuevo_prestamo = Prestamo(
+        cliente_id=prestamo.cliente_id,
+        usuario_id=usuario_id,
+        monto_prestado=prestamo.monto_prestado,
+        total_deuda=total_deuda,
+        deuda_restante=total_deuda,
+        interes_porcentaje=prestamo.interes_porcentaje,
+        valor_cartulina=valor_cartulina
+    )
+    db.add(nuevo_prestamo)
+    db.commit()
+    db.refresh(nuevo_prestamo)
+    
+    # Crear cuotas
+    for i in range(1, prestamo.numero_cuotas + 1):
+        fecha_vencimiento = calcular_fecha_vencimiento(
+            date.today(), i, prestamo.frecuencia
+        )
+        cuota = Cuota(
+            prestamo_id=nuevo_prestamo.id,
+            numero_cuota=i,
+            valor_cuota=valor_cuota,
+            fecha_vencimiento=fecha_vencimiento,
+            valor_pendiente=valor_cuota
+        )
+        db.add(cuota)
+    db.commit()
+    
+    # Registrar ingreso de cartulina
+    ingreso = db.query(IngresoDia).filter(
+        IngresoDia.usuario_id == usuario_id,
+        IngresoDia.fecha == date.today()
+    ).first()
+    
+    if not ingreso:
+        ingreso = IngresoDia(usuario_id=usuario_id)
+        db.add(ingreso)
+
+    if ingreso.ingreso_cartulinas is None:
+        ingreso.ingreso_cartulinas = 0.0
+    ingreso.ingreso_cartulinas += valor_cartulina
+    if ingreso.ingreso_cuotas is None:
+        ingreso.ingreso_cuotas = 0.0
+    ingreso.total_ingresos = ingreso.ingreso_cuotas + ingreso.ingreso_cartulinas
+    db.commit()
+    
+    return {
+        "status": "success",
+        "prestamo_anterior_id": prestamo_anterior.id if prestamo_anterior else None,
+        "prestamo_nuevo_id": nuevo_prestamo.id,
+        "total_deuda": total_deuda,
+        "valor_cartulina": valor_cartulina,
+        "valor_cuota": valor_cuota,
+        "numero_cuotas": prestamo.numero_cuotas,
+        "mensaje": f"Préstamo renovado para {cliente.nombres}"
+    }
+
 @app.get("/api/prestamos/{prestamo_id}")
 def obtener_prestamo(prestamo_id: int, db: Session = Depends(get_db)):
     prestamo = db.query(Prestamo).filter(Prestamo.id == prestamo_id).first()
@@ -643,11 +878,22 @@ def obtener_prestamo(prestamo_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/cobros/registrar-pago")
 def registrar_pago(pago: PagoCuotaRegistro, usuario_id: int, db: Session = Depends(get_db)):
+    """
+    Registra el pago de una cuota.
+    Los trabajadores solo pueden registrar pagos de sus clientes.
+    """
     cuota = db.query(Cuota).filter(Cuota.id == pago.cuota_id).first()
     if not cuota:
         raise HTTPException(status_code=404, detail="Cuota no encontrada")
     
     prestamo = db.query(Prestamo).filter(Prestamo.id == cuota.prestamo_id).first()
+    cliente = db.query(Cliente).filter(Cliente.id == prestamo.cliente_id).first()
+    
+    # Si es trabajador, verificar que sea su cliente
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if usuario and usuario.rol == RolUsuario.TRABAJADOR:
+        if cliente.trabajador_id != usuario_id:
+            raise HTTPException(status_code=403, detail="No tienes permiso para registrar pagos de este cliente")
     
     # Registrar pago
     pago_obj = PagoCuota(

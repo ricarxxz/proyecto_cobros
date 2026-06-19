@@ -941,13 +941,19 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
   final _nombresController = TextEditingController();
   final _cedulaController = TextEditingController();
   final _telefonoController = TextEditingController();
+  final _montoController = TextEditingController();
+  final _cuotasController = TextEditingController();
   String _diaCobro = 'lunes';
+  String _frecuencia = 'mensual';
+  double _interes = 20.0;
   bool _isLoading = false;
 
   Future<void> _registrarCliente() async {
     if (_nombresController.text.isEmpty ||
         _cedulaController.text.isEmpty ||
         _telefonoController.text.isEmpty ||
+        _montoController.text.isEmpty ||
+        _cuotasController.text.isEmpty ||
         _diaCobro.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Complete todos los campos")),
@@ -960,7 +966,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
     try {
       final response = await http.post(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/clientes/registrar?admin_id=${SessionGlobal.usuarioId}',
+          'https://proyecto-cobros.onrender.com/api/clientes/registrar-con-prestamo',
         ),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -968,20 +974,27 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
           'cedula': _cedulaController.text,
           'telefono': _telefonoController.text,
           'dia_cobro': _diaCobro,
+          'monto_prestado': double.parse(_montoController.text),
+          'interes_porcentaje': _interes,
+          'numero_cuotas': int.parse(_cuotasController.text),
+          'frecuencia': _frecuencia,
+          'admin_id': SessionGlobal.usuarioId,
         }),
       );
 
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              "Cliente registrado exitosamente. Debe ser asignado a un trabajador.",
+              "Cliente y préstamo registrados. Monto: \$${_montoController.text}",
             ),
           ),
         );
         _nombresController.clear();
         _cedulaController.clear();
         _telefonoController.clear();
+        _montoController.clear();
+        _cuotasController.clear();
       } else {
         final error = jsonDecode(response.body);
         ScaffoldMessenger.of(
@@ -1067,6 +1080,71 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
                   });
                 },
               ),
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 10),
+              const Text(
+                "Datos del Préstamo",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _montoController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: "Monto a prestar",
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.attach_money),
+                ),
+              ),
+              const SizedBox(height: 15),
+              TextField(
+                controller: _cuotasController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: "Número de cuotas",
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.numbers),
+                ),
+              ),
+              const SizedBox(height: 15),
+              DropdownButtonFormField<String>(
+                value: _frecuencia,
+                decoration: const InputDecoration(
+                  labelText: "Frecuencia",
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.schedule),
+                ),
+                items: ['semanal', 'quincenal', 'mensual']
+                    .map(
+                      (f) => DropdownMenuItem(
+                        value: f,
+                        child: Text(f[0].toUpperCase() + f.substring(1)),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _frecuencia = value ?? 'mensual';
+                  });
+                },
+              ),
+              const SizedBox(height: 15),
+              Text("Interés: ${_interes.toStringAsFixed(1)}%"),
+              Slider(
+                value: _interes,
+                min: 0,
+                max: 50,
+                divisions: 50,
+                label: "${_interes.toStringAsFixed(1)}%",
+                onChanged: (value) {
+                  setState(() {
+                    _interes = value;
+                  });
+                },
+              ),
               const SizedBox(height: 30),
               SizedBox(
                 width: double.infinity,
@@ -1078,7 +1156,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
                   ),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("Registrar Cliente"),
+                      : const Text("Registrar Cliente y Préstamo"),
                 ),
               ),
             ],
