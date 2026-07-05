@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Enum, Date
 from sqlalchemy.ext.declarative import declarative_base
@@ -11,7 +11,6 @@ import enum
 import os
 from dotenv import load_dotenv
 
-# Cargar variables de entorno
 load_dotenv()
 
 # 1. Configuración de la Base de Datos (PostgreSQL Neon)
@@ -59,10 +58,17 @@ class Cliente(Base):
     cedula = Column(String, unique=True, index=True)
     telefono = Column(String)
     usuario_id = Column(Integer)  # Admin que lo registró
-    trabajador_id = Column(Integer, nullable=True)  # Trabajador asignado
+    trabajador_id = Column(Integer, nullable=True)  # (DEPRECADO) Mantener por compatibilidad
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     activo = Column(Boolean, default=True)
     dia_cobro = Column(String, default="lunes")  # Día de cobro: lunes, martes, ...
+
+
+class TrabajadorDia(Base):
+    __tablename__ = "trabajadores_dia"
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, index=True)
+    dia = Column(String)  # lunes, martes, miercoles, etc.
 
 
 
@@ -230,6 +236,20 @@ def calcular_fecha_vencimiento(fecha_inicio: date, numero_cuota: int, frecuencia
     else:  # MENSUAL
         return fecha_inicio + timedelta(days=30 * numero_cuota)
 
+
+def _coerce_bool(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "si", "sí", "yes", "y"}:
+            return True
+        if lowered in {"false", "0", "no", "n"}:
+            return False
+    return bool(value)
+
 # ============= ENDPOINTS: AUTENTICACIÓN =============
 
 @app.post("/api/auth/registro")
@@ -325,17 +345,246 @@ def listar_trabajadores(admin_id: int, db: Session = Depends(get_db)):
     
     resultado = []
     for t in trabajadores:
-        clientes_asignados = db.query(Cliente).filter(Cliente.trabajador_id == t.id).count()
+        # Contar clientes cuyo `dia_cobro` está entre los días asignados a este trabajador
+        dias_asignados = [d[0] for d in db.query(TrabajadorDia.dia).filter(TrabajadorDia.usuario_id == t.id).all()]
+        if dias_asignados:
+            clientes_asignados = db.query(Cliente).filter(Cliente.dia_cobro.in_(dias_asignados), Cliente.activo == True).count()
+        else:
+            clientes_asignados = 0
         resultado.append({
             "id": t.id,
             "nombre": t.nombre,
             "email": t.email,
             "activo": t.activo,
             "fecha_creacion": t.fecha_creacion,
-            "clientes_asignados": clientes_asignados
+            "clientes_asignados": clientes_asignados,
+            "dias_asignados": dias_asignados
         })
     
     return resultado
+
+
+@app.post("/api/admin/editar-trabajador")
+async def editar_trabajador(request: Request, admin_id: int, trabajador_id: int, nombres: str = None, email: str = None, activo: bool = None, password: str = None, db: Session = Depends(get_db)):
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden editar trabajadores")
+
+    trabajador = db.query(Usuario).filter(Usuario.id == trabajador_id, Usuario.rol == RolUsuario.TRABAJADOR).first()
+    if not trabajador:
+        raise HTTPException(status_code=404, detail="Trabajador no encontrado")
+
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    nombres = request.query_params.get("nombres") if request.query_params.get("nombres") is not None else (body.get("nombres") or nombres)
+    email = request.query_params.get("email") if request.query_params.get("email") is not None else (body.get("email") or email)
+    activo_raw = request.query_params.get("activo") if request.query_params.get("activo") is not None else body.get("activo")
+    password = request.query_params.get("password") if request.query_params.get("password") is not None else (body.get("password") or password)
+    activo = _coerce_bool(activo_raw) if activo_raw is not None else activo
+
+    if nombres:
+        trabajador.nombre = nombres
+    if email and email != trabajador.email:
+        # Verificar conflicto de email
+        existe = db.query(Usuario).filter(Usuario.email == email).first()
+        if existe:
+            raise HTTPException(status_code=400, detail="Email ya en uso")
+        trabajador.email = email
+    if activo is not None:
+        trabajador.activo = activo
+    if password:
+        trabajador.password_hash = hash_password(password)
+
+    db.commit()
+    db.refresh(trabajador)
+
+    return {"status": "success", "trabajador_id": trabajador.id, "mensaje": "Trabajador actualizado"}
+
+
+@app.post("/api/admin/eliminar-trabajador")
+def eliminar_trabajador(admin_id: int, trabajador_id: int, db: Session = Depends(get_db)):
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden eliminar trabajadores")
+
+    trabajador = db.query(Usuario).filter(Usuario.id == trabajador_id, Usuario.rol == RolUsuario.TRABAJADOR).first()
+    if not trabajador:
+        raise HTTPException(status_code=404, detail="Trabajador no encontrado")
+
+    # Soft delete: desactivar
+    trabajador.activo = False
+    db.commit()
+
+    return {"status": "success", "trabajador_id": trabajador.id, "mensaje": "Trabajador desactivado"}
+
+
+@app.post("/api/admin/asignar-trabajador-dia")
+def asignar_trabajador_dia(admin_id: int, trabajador_id: int, dia: str, db: Session = Depends(get_db)):
+    # Verificar que el usuario que solicita es administrador
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden asignar días a trabajadores")
+
+    trabajador = db.query(Usuario).filter(Usuario.id == trabajador_id, Usuario.rol == RolUsuario.TRABAJADOR).first()
+    if not trabajador:
+        raise HTTPException(status_code=404, detail="Trabajador no encontrado")
+
+    # Evitar duplicados
+    existente = db.query(TrabajadorDia).filter(TrabajadorDia.usuario_id == trabajador_id, TrabajadorDia.dia == dia).first()
+    if existente:
+        raise HTTPException(status_code=400, detail="El trabajador ya tiene asignado ese día")
+
+    asignacion = TrabajadorDia(usuario_id=trabajador_id, dia=dia)
+    db.add(asignacion)
+    db.commit()
+
+    return {"status": "success", "mensaje": f"Trabajador {trabajador.nombre} asignado al día {dia}"}
+
+
+@app.post("/api/admin/desasignar-trabajador-dia")
+def desasignar_trabajador_dia(admin_id: int, trabajador_id: int, dia: str, db: Session = Depends(get_db)):
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden desasignar días")
+
+    asignacion = db.query(TrabajadorDia).filter(TrabajadorDia.usuario_id == trabajador_id, TrabajadorDia.dia == dia).first()
+    if not asignacion:
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+
+    db.delete(asignacion)
+    db.commit()
+
+    return {"status": "success", "mensaje": f"Desasignado día {dia} para trabajador {trabajador_id}"}
+
+
+@app.get("/api/admin/listar-asignaciones")
+def listar_asignaciones(admin_id: int, db: Session = Depends(get_db)):
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden ver las asignaciones")
+
+    asignaciones = db.query(TrabajadorDia).all()
+    resultado = []
+    for a in asignaciones:
+        trabajador = db.query(Usuario).filter(Usuario.id == a.usuario_id).first()
+        resultado.append({
+            "id": a.id,
+            "trabajador_id": a.usuario_id,
+            "trabajador_nombre": trabajador.nombre if trabajador else None,
+            "dia": a.dia
+        })
+
+    return resultado
+
+
+@app.get("/api/admin/listar-clientes")
+def listar_clientes_admin(admin_id: int, db: Session = Depends(get_db)):
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden ver clientes")
+
+    clientes = db.query(Cliente).all()
+    return [
+        {
+            "id": c.id,
+            "nombres": c.nombres,
+            "cedula": c.cedula,
+            "telefono": c.telefono,
+            "dia_cobro": c.dia_cobro,
+            "activo": c.activo,
+            "fecha_creacion": c.fecha_creacion
+        }
+        for c in clientes
+    ]
+
+
+@app.post("/api/admin/editar-cliente")
+async def editar_cliente_admin(request: Request, admin_id: int, cliente_id: int, nombres: str = None, telefono: str = None, dia_cobro: str = None, activo: bool = None, db: Session = Depends(get_db)):
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden editar clientes")
+
+    cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    nombres = request.query_params.get("nombres") if request.query_params.get("nombres") is not None else (body.get("nombres") or nombres)
+    telefono = request.query_params.get("telefono") if request.query_params.get("telefono") is not None else (body.get("telefono") or telefono)
+    dia_cobro = request.query_params.get("dia_cobro") if request.query_params.get("dia_cobro") is not None else (body.get("dia_cobro") or dia_cobro)
+    activo_raw = request.query_params.get("activo") if request.query_params.get("activo") is not None else body.get("activo")
+    activo = _coerce_bool(activo_raw) if activo_raw is not None else activo
+
+    if nombres:
+        cliente.nombres = nombres
+    if telefono:
+        cliente.telefono = telefono
+    if dia_cobro:
+        cliente.dia_cobro = dia_cobro
+    if activo is not None:
+        cliente.activo = activo
+
+    db.commit()
+    db.refresh(cliente)
+
+    return {"status": "success", "cliente_id": cliente.id, "mensaje": "Cliente actualizado"}
+
+
+@app.post("/api/admin/eliminar-cliente")
+def eliminar_cliente_admin(admin_id: int, cliente_id: int, db: Session = Depends(get_db)):
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden eliminar clientes")
+
+    cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    # Soft delete: marcar inactivo
+    cliente.activo = False
+    db.commit()
+
+    return {"status": "success", "cliente_id": cliente.id, "mensaje": "Cliente desactivado"}
+
+
+@app.post("/api/admin/agregar-interes-mora")
+def agregar_interes_mora(admin_id: int, cuota_id: int, monto_interes: float, db: Session = Depends(get_db)):
+    """
+    Permite al administrador agregar un monto fijo de intereses de mora a una cuota.
+    Actualiza la cuota y el préstamo relacionado (total_deuda y deuda_restante).
+    """
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden aplicar intereses de mora")
+
+    cuota = db.query(Cuota).filter(Cuota.id == cuota_id).first()
+    if not cuota:
+        raise HTTPException(status_code=404, detail="Cuota no encontrada")
+
+    prestamo = db.query(Prestamo).filter(Prestamo.id == cuota.prestamo_id).first()
+    if not prestamo:
+        raise HTTPException(status_code=404, detail="Préstamo relacionado no encontrado")
+
+    # Aplicar intereses: aumentar valor_cuota y valor_pendiente en la cuota
+    cuota.valor_cuota = (cuota.valor_cuota or 0.0) + monto_interes
+    cuota.valor_pendiente = (cuota.valor_pendiente or 0.0) + monto_interes
+
+    # Actualizar el préstamo: total_deuda y deuda_restante
+    prestamo.total_deuda = (prestamo.total_deuda or 0.0) + monto_interes
+    prestamo.deuda_restante = (prestamo.deuda_restante or 0.0) + monto_interes
+
+    db.commit()
+
+    return {"status": "success", "cuota_id": cuota.id, "monto_interes": monto_interes, "mensaje": "Interés de mora agregado"}
 
 @app.post("/api/admin/asignar-cliente")
 def asignar_cliente(admin_id: int, cliente_id: int, trabajador_id: int, db: Session = Depends(get_db)):
@@ -357,14 +606,8 @@ def asignar_cliente(admin_id: int, cliente_id: int, trabajador_id: int, db: Sess
     if not trabajador:
         raise HTTPException(status_code=404, detail="Trabajador no encontrado")
     
-    # Asignar cliente a trabajador
-    cliente.trabajador_id = trabajador_id
-    db.commit()
-    
-    return {
-        "status": "success",
-        "mensaje": f"Cliente {cliente.nombres} asignado a trabajador {trabajador.nombre}"
-    }
+    # Este endpoint queda obsoleto: la asignación se hace por día.
+    raise HTTPException(status_code=400, detail="Asignación directa de cliente a trabajador está obsoleta. Asigne el trabajador a un día con /api/admin/asignar-trabajador-dia")
 
 @app.post("/api/admin/desasignar-cliente")
 def desasignar_cliente(admin_id: int, cliente_id: int, db: Session = Depends(get_db)):
@@ -394,23 +637,23 @@ def clientes_sin_asignar(admin_id: int, db: Session = Depends(get_db)):
     if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
         raise HTTPException(status_code=403, detail="Solo administradores pueden acceder a esto")
     
-    # Obtener clientes sin asignar
-    clientes = db.query(Cliente).filter(
-        Cliente.trabajador_id == None,
-        Cliente.activo == True
-    ).all()
-    
-    return [
-        {
-            "id": c.id,
-            "nombres": c.nombres,
-            "cedula": c.cedula,
-            "telefono": c.telefono,
-            "dia_cobro": c.dia_cobro,
-            "fecha_creacion": c.fecha_creacion
-        }
-        for c in clientes
-    ]
+    # Obtener clientes cuyo día no tiene ningún trabajador asignado
+    clientes = db.query(Cliente).filter(Cliente.activo == True).all()
+
+    resultado = []
+    for c in clientes:
+        asignado = db.query(TrabajadorDia).filter(TrabajadorDia.dia == c.dia_cobro).first()
+        if not asignado:
+            resultado.append({
+                "id": c.id,
+                "nombres": c.nombres,
+                "cedula": c.cedula,
+                "telefono": c.telefono,
+                "dia_cobro": c.dia_cobro,
+                "fecha_creacion": c.fecha_creacion
+            })
+
+    return resultado
 
 # ============= ENDPOINTS: CLIENTES =============
 
@@ -441,7 +684,7 @@ def registrar_cliente(cliente: ClienteRegistro, admin_id: int, db: Session = Dep
     return {
         "status": "success",
         "cliente_id": nuevo_cliente.id,
-        "mensaje": f"Cliente {cliente.nombres} registrado correctamente. Debe ser asignado a un trabajador."
+        "mensaje": f"Cliente {cliente.nombres} registrado correctamente. Puede registrar el préstamo inmediatamente con /api/clientes/registrar-con-prestamo"
     }
 
 @app.post("/api/clientes/registrar-con-prestamo")
@@ -551,9 +794,12 @@ def buscar_cliente(cedula: str = None, nombre: str = None, usuario_id: int = Non
     
     query = db.query(Cliente).filter(Cliente.activo == True)
     
-    # Si es trabajador, filtrar solo sus clientes
+    # Si es trabajador, filtrar solo los clientes cuyos dias estén asignados a ese trabajador
     if usuario and usuario.rol == RolUsuario.TRABAJADOR:
-        query = query.filter(Cliente.trabajador_id == usuario_id)
+        dias_asignados = [d[0] for d in db.query(TrabajadorDia.dia).filter(TrabajadorDia.usuario_id == usuario_id).all()]
+        if not dias_asignados:
+            raise HTTPException(status_code=403, detail="No tienes días asignados")
+        query = query.filter(Cliente.dia_cobro.in_(dias_asignados))
     
     if cedula:
         query = query.filter(Cliente.cedula == cedula)
@@ -595,9 +841,10 @@ def obtener_cliente(cliente_id: int, usuario_id: int = None, db: Session = Depen
     if usuario_id:
         usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
         if usuario and usuario.rol == RolUsuario.TRABAJADOR:
-            # Trabajador solo puede ver sus clientes
-            if cliente.trabajador_id != usuario_id:
-                raise HTTPException(status_code=403, detail="No tienes permiso para ver este cliente")
+                # Trabajador solo puede ver clientes de los días que tenga asignados
+                dias_asignados = [d[0] for d in db.query(TrabajadorDia.dia).filter(TrabajadorDia.usuario_id == usuario_id).all()]
+                if not dias_asignados or cliente.dia_cobro not in dias_asignados:
+                    raise HTTPException(status_code=403, detail="No tienes permiso para ver este cliente")
     
     # Obtener préstamos activos del cliente
     prestamos_activos = db.query(Prestamo).filter(
@@ -639,22 +886,27 @@ def obtener_cliente(cliente_id: int, usuario_id: int = None, db: Session = Depen
 def clientes_por_dia(dia: str, trabajador_id: int = None, usuario_id: int = None, db: Session = Depends(get_db)):
     """
     Obtiene clientes para un día específico.
-    Si es trabajador, solo obtiene sus clientes.
-    Si es admin y proporciona trabajador_id, obtiene los clientes de ese trabajador.
+    Si es trabajador, solo obtiene sus clientes si tiene asignado ese día.
+    Si es admin, devuelve los clientes de ese día sin filtrar por trabajador.
     """
-    # Usar trabajador_id o usuario_id para filtrar
-    id_trabajador = trabajador_id or usuario_id
-    
-    if not id_trabajador:
+    if usuario_id is not None:
+        usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        if not usuario:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        if usuario.rol == RolUsuario.TRABAJADOR:
+            asignacion = db.query(TrabajadorDia).filter(TrabajadorDia.usuario_id == usuario_id, TrabajadorDia.dia == dia).first()
+            if not asignacion:
+                raise HTTPException(status_code=403, detail="No tienes asignado este día")
+            clientes = db.query(Cliente).filter(Cliente.dia_cobro == dia, Cliente.activo == True).all()
+        elif usuario.rol == RolUsuario.ADMINISTRADOR:
+            clientes = db.query(Cliente).filter(Cliente.dia_cobro == dia, Cliente.activo == True).all()
+        else:
+            raise HTTPException(status_code=403, detail="Usuario no válido")
+    elif trabajador_id is not None:
+        clientes = db.query(Cliente).filter(Cliente.dia_cobro == dia, Cliente.activo == True).all()
+    else:
         raise HTTPException(status_code=400, detail="Debe proporcionar trabajador_id o usuario_id")
-    
-    # Obtener clientes asignados al trabajador para ese día
-    clientes = db.query(Cliente).filter(
-        Cliente.trabajador_id == id_trabajador,
-        Cliente.dia_cobro == dia,
-        Cliente.activo == True
-    ).all()
-    
+
     return [
         {
             "id": c.id,
@@ -762,7 +1014,9 @@ def renovar_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = 
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     
-    if cliente.trabajador_id != usuario_id:
+    # Verificar que el cliente corresponde a uno de los días asignados al trabajador
+    dias_asignados = [d[0] for d in db.query(TrabajadorDia.dia).filter(TrabajadorDia.usuario_id == usuario_id).all()]
+    if not dias_asignados or cliente.dia_cobro not in dias_asignados:
         raise HTTPException(status_code=403, detail="No tienes permiso para renovar préstamos de este cliente")
     
     # Obtener el préstamo anterior (el más reciente sin pagarse completamente)
@@ -897,7 +1151,8 @@ def registrar_pago(pago: PagoCuotaRegistro, usuario_id: int, db: Session = Depen
     # Si es trabajador, verificar que sea su cliente
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if usuario and usuario.rol == RolUsuario.TRABAJADOR:
-        if cliente.trabajador_id != usuario_id:
+        dias_asignados = [d[0] for d in db.query(TrabajadorDia.dia).filter(TrabajadorDia.usuario_id == usuario_id).all()]
+        if not dias_asignados or cliente.dia_cobro not in dias_asignados:
             raise HTTPException(status_code=403, detail="No tienes permiso para registrar pagos de este cliente")
     
     # Registrar pago

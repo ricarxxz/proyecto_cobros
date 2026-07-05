@@ -1,0 +1,80 @@
+﻿Analyzing main.dart...                                          
+
+warning - Unused import: 'colors.dart' - lib\main.dart:2:8 - unused_import
+warning - Unused import: 'app_styles.dart' - lib\main.dart:3:8 - unused_import
+   info - Invalid use of a private type in a public API - lib\main.dart:27:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:63:11 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:68:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:74:9 - use_build_context_synchronously
+   info - Invalid use of a private type in a public API - lib\main.dart:151:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:193:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:198:23 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:201:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:207:9 - use_build_context_synchronously
+   info - Invalid use of a private type in a public API - lib\main.dart:287:3 - library_private_types_in_public_api
+   info - Use interpolation to compose strings and values - lib\main.dart:341:21 - prefer_interpolation_to_compose_strings
+   info - Invalid use of a private type in a public API - lib\main.dart:599:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:646:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:654:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:660:9 - use_build_context_synchronously
+   info - Invalid use of a private type in a public API - lib\main.dart:745:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:794:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:817:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:823:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:829:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:846:11 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:851:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:857:9 - use_build_context_synchronously
+   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\main.dart:898:23 - deprecated_member_use
+   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\main.dart:918:23 - deprecated_member_use
+   info - Invalid use of a private type in a public API - lib\main.dart:982:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1009:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1025:11 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1030:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1038:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1111:11 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1116:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1124:9 - use_build_context_synchronously
+   info - Invalid use of a private type in a public API - lib\main.dart:1173:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1199:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1215:11 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1220:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1228:9 - use_build_context_synchronously
+   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\main.dart:1257:17 - deprecated_member_use
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1334:11 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1339:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1345:9 - use_build_context_synchronously
+warning - The declaration '_MenuCard' isn't referenced - lib\main.dart:1390:7 - unused_element
+   info - Invalid use of a private type in a public API - lib\main.dart:1429:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1477:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1492:11 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1497:9 - use_build_context_synchronously
+   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\main.dart:1543:17 - deprecated_member_use
+   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\main.dart:1605:17 - deprecated_member_use
+   info - Invalid use of a private type in a public API - lib\main.dart:1666:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1711:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1715:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1721:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1755:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1769:11 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1774:9 - use_build_context_synchronously
+   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\main.dart:1847:17 - deprecated_member_use
+   info - Invalid use of a private type in a public API - lib\main.dart:1893:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1925:32 - use_build_context_synchronously
+warning - The value of the local variable 'clienteName' isn't used - lib\main.dart:1933:15 - unused_local_variable
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:1971:9 - use_build_context_synchronously
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\main.dart:2037:43 - deprecated_member_use
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:2122:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:2148:11 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:2153:9 - use_build_context_synchronously
+   info - Invalid use of a private type in a public API - lib\main.dart:2166:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:2194:11 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:2199:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:2341:9 - use_build_context_synchronously
+   info - Invalid use of a private type in a public API - lib\main.dart:2365:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:2391:9 - use_build_context_synchronously
+   info - Invalid use of a private type in a public API - lib\main.dart:2484:3 - library_private_types_in_public_api
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:2502:30 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\main.dart:2512:9 - use_build_context_synchronously
+
+76 issues found. (ran in 3.4s)

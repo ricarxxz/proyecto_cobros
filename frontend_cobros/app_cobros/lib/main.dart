@@ -302,6 +302,8 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
     'domingo',
   ];
 
+  bool get _esAdmin => SessionGlobal.rol == 'administrador';
+
   @override
   void initState() {
     super.initState();
@@ -311,11 +313,15 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
   Future<void> _cargarClientesPorDia() async {
     setState(() => _cargandoClientes = true);
     try {
-      final response = await http.get(
-        Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/clientes/dia/$_diaSeleccionado?trabajador_id=${SessionGlobal.usuarioId}',
-        ),
-      );
+      String url;
+      if (_esAdmin) {
+        url =
+            'https://proyecto-cobros.onrender.com/api/clientes/dia/$_diaSeleccionado?trabajador_id=${SessionGlobal.usuarioId}';
+      } else {
+        url =
+            'https://proyecto-cobros.onrender.com/api/clientes/dia/$_diaSeleccionado?usuario_id=${SessionGlobal.usuarioId}';
+      }
+      final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         setState(() {
           _clientes = jsonDecode(response.body);
@@ -407,14 +413,30 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.assignment, color: Colors.orange),
-                title: const Text('Asignar Clientes'),
+                leading: const Icon(
+                  Icons.manage_accounts,
+                  color: Colors.blueGrey,
+                ),
+                title: const Text('Administrar Trabajadores'),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const AsignarClientesScreen(),
+                      builder: (_) => const GestionTrabajadoresScreen(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.calendar_month, color: Colors.orange),
+                title: const Text('Asignar Días'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AsignarDiasScreen(),
                     ),
                   );
                 },
@@ -430,6 +452,19 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                       builder: (_) => const RegistroClienteScreen(),
                     ),
                   ).then((_) => _cargarClientesPorDia());
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.group, color: Colors.teal),
+                title: const Text('Administrar Clientes'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const GestionClientesScreen(),
+                    ),
+                  );
                 },
               ),
               const Divider(),
@@ -536,7 +571,15 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
           ),
           const SizedBox(height: 10),
           Expanded(
-            child: _cargandoClientes
+            child: _esAdmin
+                ? const Center(
+                    child: Text(
+                      'Como administrador, use el menú para gestionar trabajadores y clientes.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  )
+                : _cargandoClientes
                 ? const Center(child: CircularProgressIndicator())
                 : _clientes.isEmpty
                 ? const Center(child: Text('No hay clientes para este día'))
@@ -708,19 +751,30 @@ class _RegistroTrabajadorScreenState extends State<RegistroTrabajadorScreen> {
   }
 }
 
-// ============= ASIGNAR CLIENTES A TRABAJADORES =============
-class AsignarClientesScreen extends StatefulWidget {
-  const AsignarClientesScreen({super.key});
+// ============= ASIGNAR DÍAS A TRABAJADORES =============
+class AsignarDiasScreen extends StatefulWidget {
+  const AsignarDiasScreen({super.key});
 
   @override
-  _AsignarClientesScreenState createState() => _AsignarClientesScreenState();
+  _AsignarDiasScreenState createState() => _AsignarDiasScreenState();
 }
 
-class _AsignarClientesScreenState extends State<AsignarClientesScreen> {
+class _AsignarDiasScreenState extends State<AsignarDiasScreen> {
   List<dynamic> _trabajadores = [];
-  List<dynamic> _clientesSinAsignar = [];
+  List<dynamic> _asignaciones = [];
   int? _trabajadorSeleccionado;
+  String _diaSeleccionado = 'lunes';
   bool _cargando = false;
+
+  final List<String> _diasSemana = [
+    'lunes',
+    'martes',
+    'miércoles',
+    'jueves',
+    'viernes',
+    'sábado',
+    'domingo',
+  ];
 
   @override
   void initState() {
@@ -731,24 +785,22 @@ class _AsignarClientesScreenState extends State<AsignarClientesScreen> {
   Future<void> _cargarDatos() async {
     setState(() => _cargando = true);
     try {
-      // Cargar trabajadores
       final resTrabajadores = await http.get(
         Uri.parse(
           'https://proyecto-cobros.onrender.com/api/admin/listar-trabajadores?admin_id=${SessionGlobal.usuarioId}',
         ),
       );
-
-      // Cargar clientes sin asignar
-      final resClientes = await http.get(
+      final resAsignaciones = await http.get(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/admin/clientes-sin-asignar?admin_id=${SessionGlobal.usuarioId}',
+          'https://proyecto-cobros.onrender.com/api/admin/listar-asignaciones?admin_id=${SessionGlobal.usuarioId}',
         ),
       );
 
-      if (resTrabajadores.statusCode == 200 && resClientes.statusCode == 200) {
+      if (resTrabajadores.statusCode == 200 &&
+          resAsignaciones.statusCode == 200) {
         setState(() {
           _trabajadores = jsonDecode(resTrabajadores.body);
-          _clientesSinAsignar = jsonDecode(resClientes.body);
+          _asignaciones = jsonDecode(resAsignaciones.body);
         });
       }
     } catch (e) {
@@ -760,7 +812,7 @@ class _AsignarClientesScreenState extends State<AsignarClientesScreen> {
     }
   }
 
-  Future<void> _asignarCliente(int clienteId) async {
+  Future<void> _asignarDia() async {
     if (_trabajadorSeleccionado == null) {
       ScaffoldMessenger.of(
         context,
@@ -771,19 +823,47 @@ class _AsignarClientesScreenState extends State<AsignarClientesScreen> {
     try {
       final response = await http.post(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/admin/asignar-cliente?admin_id=${SessionGlobal.usuarioId}&cliente_id=$clienteId&trabajador_id=$_trabajadorSeleccionado',
+          'https://proyecto-cobros.onrender.com/api/admin/asignar-trabajador-dia?admin_id=${SessionGlobal.usuarioId}&trabajador_id=$_trabajadorSeleccionado&dia=$_diaSeleccionado',
         ),
       );
 
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Cliente asignado correctamente")),
+          const SnackBar(content: Text("Día asignado correctamente")),
         );
         _cargarDatos();
       } else {
         final error = jsonDecode(response.body);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error['detail'] ?? 'Error al asignar')),
+          SnackBar(content: Text(error['detail'] ?? 'Error al asignar día')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  Future<void> _desasignar(int asignacionId) async {
+    try {
+      final asignacion = _asignaciones.firstWhere(
+        (a) => a['id'] == asignacionId,
+      );
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/desasignar-trabajador-dia?admin_id=${SessionGlobal.usuarioId}&trabajador_id=${asignacion['trabajador_id']}&dia=${asignacion['dia']}',
+        ),
+      );
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Asignación eliminada")));
+        _cargarDatos();
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error['detail'] ?? 'Error al desasignar')),
         );
       }
     } catch (e) {
@@ -797,7 +877,7 @@ class _AsignarClientesScreenState extends State<AsignarClientesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Asignar Clientes"),
+        title: const Text("Asignar Días"),
         backgroundColor: Colors.orange,
       ),
       body: _cargando
@@ -806,82 +886,95 @@ class _AsignarClientesScreenState extends State<AsignarClientesScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(15),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              "Seleccionar Trabajador",
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            DropdownButton<int>(
-                              isExpanded: true,
-                              hint: const Text("Seleccione un trabajador"),
-                              value: _trabajadorSeleccionado,
-                              items: _trabajadores
-                                  .map<DropdownMenuItem<int>>(
-                                    (t) => DropdownMenuItem<int>(
-                                      value: t['id'],
-                                      child: Text(
-                                        "${t['nombre']} (${t['clientes_asignados']} clientes)",
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: (value) {
-                                setState(() => _trabajadorSeleccionado = value);
-                              },
-                            ),
-                          ],
-                        ),
+                    const Text(
+                      'Asignar día a trabajador',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 15),
+                    DropdownButtonFormField<int>(
+                      decoration: const InputDecoration(
+                        labelText: 'Trabajador',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _trabajadores
+                          .map<DropdownMenuItem<int>>(
+                            (t) => DropdownMenuItem<int>(
+                              value: t['id'],
+                              child: Text(t['nombre']),
+                            ),
+                          )
+                          .toList(),
+                      value: _trabajadorSeleccionado,
+                      onChanged: (value) =>
+                          setState(() => _trabajadorSeleccionado = value),
+                    ),
+                    const SizedBox(height: 15),
+                    DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(
+                        labelText: 'Día',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _diasSemana
+                          .map(
+                            (dia) => DropdownMenuItem<String>(
+                              value: dia,
+                              child: Text(
+                                dia[0].toUpperCase() + dia.substring(1),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      value: _diaSeleccionado,
+                      onChanged: (value) =>
+                          setState(() => _diaSeleccionado = value ?? 'lunes'),
+                    ),
+                    const SizedBox(height: 15),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: _asignarDia,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                        ),
+                        child: const Text('Asignar Día'),
+                      ),
+                    ),
+                    const SizedBox(height: 25),
                     const Text(
-                      "Clientes sin Asignar",
+                      'Asignaciones actuales',
                       style: TextStyle(
-                        fontSize: 16,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 10),
-                    _clientesSinAsignar.isEmpty
-                        ? const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(20),
-                              child: Text(
-                                "Todos los clientes están asignados",
-                                style: TextStyle(color: Colors.grey),
-                              ),
-                            ),
-                          )
+                    _asignaciones.isEmpty
+                        ? const Text('No hay asignaciones')
                         : ListView.builder(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
-                            itemCount: _clientesSinAsignar.length,
+                            itemCount: _asignaciones.length,
                             itemBuilder: (context, idx) {
-                              final cliente = _clientesSinAsignar[idx];
+                              final asignacion = _asignaciones[idx];
                               return Card(
                                 child: ListTile(
-                                  title: Text(cliente['nombres']),
-                                  subtitle: Text(
-                                    'Cédula: ${cliente['cedula']} | Día: ${cliente['dia_cobro']}',
+                                  title: Text(
+                                    '${asignacion['trabajador_nombre']}',
                                   ),
-                                  trailing: ElevatedButton(
-                                    onPressed: _trabajadorSeleccionado == null
-                                        ? null
-                                        : () => _asignarCliente(cliente['id']),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.orange,
+                                  subtitle: Text('Día: ${asignacion['dia']}'),
+                                  trailing: IconButton(
+                                    icon: const Icon(
+                                      Icons.delete,
+                                      color: Colors.red,
                                     ),
-                                    child: const Text("Asignar"),
+                                    onPressed: () =>
+                                        _desasignar(asignacion['id']),
                                   ),
                                 ),
                               );
@@ -890,6 +983,601 @@ class _AsignarClientesScreenState extends State<AsignarClientesScreen> {
                   ],
                 ),
               ),
+            ),
+    );
+  }
+}
+
+// ============= ADMINISTRAR TRABAJADORES =============
+class GestionTrabajadoresScreen extends StatefulWidget {
+  const GestionTrabajadoresScreen({super.key});
+
+  @override
+  _GestionTrabajadoresScreenState createState() =>
+      _GestionTrabajadoresScreenState();
+}
+
+class _GestionTrabajadoresScreenState extends State<GestionTrabajadoresScreen> {
+  List<dynamic> _trabajadores = [];
+  bool _cargando = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarTrabajadores();
+  }
+
+  Future<void> _cargarTrabajadores() async {
+    setState(() => _cargando = true);
+    try {
+      final response = await http.get(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/listar-trabajadores?admin_id=${SessionGlobal.usuarioId}',
+        ),
+      );
+      if (response.statusCode == 200) {
+        setState(() => _trabajadores = jsonDecode(response.body));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      setState(() => _cargando = false);
+    }
+  }
+
+  Future<void> _eliminarTrabajador(int id) async {
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/eliminar-trabajador?admin_id=${SessionGlobal.usuarioId}&trabajador_id=$id',
+        ),
+      );
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Trabajador desactivado')));
+        _cargarTrabajadores();
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error['detail'] ?? 'Error al eliminar trabajador'),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _editarTrabajadorDialog(Map<String, dynamic> trabajador) async {
+    final nombreController = TextEditingController(text: trabajador['nombre']);
+    final emailController = TextEditingController(text: trabajador['email']);
+    bool activo = trabajador['activo'] ?? true;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Editar Trabajador'),
+        content: SingleChildScrollView(
+          child: Column(
+            children: [
+              TextField(
+                controller: nombreController,
+                decoration: const InputDecoration(labelText: 'Nombre'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: emailController,
+                decoration: const InputDecoration(labelText: 'Email'),
+              ),
+              const SizedBox(height: 10),
+              SwitchListTile(
+                title: const Text('Activo'),
+                value: activo,
+                onChanged: (value) => setState(() => activo = value),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _editarTrabajador(
+                trabajador['id'],
+                nombreController.text,
+                emailController.text,
+                activo,
+              );
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editarTrabajador(
+    int id,
+    String nombre,
+    String email,
+    bool activo,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/editar-trabajador?admin_id=${SessionGlobal.usuarioId}&trabajador_id=$id',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'nombres': nombre, 'email': email, 'activo': activo}),
+      );
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Trabajador actualizado')));
+        _cargarTrabajadores();
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error['detail'] ?? 'Error al editar trabajador'),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Administrar Trabajadores'),
+        backgroundColor: Colors.blueGrey,
+      ),
+      body: _cargando
+          ? const Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              itemCount: _trabajadores.length,
+              itemBuilder: (context, index) {
+                final trabajador = _trabajadores[index];
+                return Card(
+                  child: ListTile(
+                    title: Text(trabajador['nombre'] ?? ''),
+                    subtitle: Text('Email: ${trabajador['email'] ?? ''}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit, color: Colors.green),
+                          onPressed: () => _editarTrabajadorDialog(trabajador),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          onPressed: () =>
+                              _eliminarTrabajador(trabajador['id']),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+// ============= ADMINISTRAR CLIENTES =============
+class GestionClientesScreen extends StatefulWidget {
+  const GestionClientesScreen({super.key});
+
+  @override
+  _GestionClientesScreenState createState() => _GestionClientesScreenState();
+}
+
+class _GestionClientesScreenState extends State<GestionClientesScreen> {
+  List<dynamic> _clientes = [];
+  bool _cargando = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarClientes();
+  }
+
+  Future<void> _cargarClientes() async {
+    setState(() => _cargando = true);
+    try {
+      final response = await http.get(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/listar-clientes?admin_id=${SessionGlobal.usuarioId}',
+        ),
+      );
+      if (response.statusCode == 200) {
+        setState(() => _clientes = jsonDecode(response.body));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      setState(() => _cargando = false);
+    }
+  }
+
+  Future<void> _eliminarCliente(int id) async {
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/eliminar-cliente?admin_id=${SessionGlobal.usuarioId}&cliente_id=$id',
+        ),
+      );
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Cliente desactivado')));
+        _cargarClientes();
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error['detail'] ?? 'Error al eliminar cliente'),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _mostrarDetallesClienteAdmin(
+    Map<String, dynamic> cliente,
+  ) async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/reportes/cliente/${cliente['id']}',
+        ),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('No se pudo cargar el reporte');
+      }
+
+      final data = jsonDecode(response.body);
+      final historial = data['historial_prestamos'] as List;
+
+      if (!mounted) return;
+
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(cliente['nombres'] ?? 'Cliente'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Deuda total: \$${data['resumen']['deuda_total']}'),
+                const SizedBox(height: 10),
+                ...historial.expand((prestamo) {
+                  final cuotas = prestamo['cuotas'] as List;
+                  return cuotas
+                      .where((cuota) => !(cuota['pagada'] ?? false))
+                      .map<Widget>((cuota) {
+                        final vencimiento = DateTime.tryParse(
+                          cuota['vencimiento'].toString(),
+                        );
+                        final atrasada =
+                            vencimiento != null &&
+                            !vencimiento.isAfter(DateTime.now());
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Cuota #${cuota['numero']}'),
+                                Text('Valor: \$${cuota['valor']}'),
+                                Text('Vence: ${cuota['vencimiento']}'),
+                                if (atrasada)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8.0),
+                                    child: ElevatedButton.icon(
+                                      onPressed: () async {
+                                        final montoController =
+                                            TextEditingController();
+                                        final aplicar = await showDialog<bool>(
+                                          context: context,
+                                          builder: (context) => AlertDialog(
+                                            title: const Text(
+                                              'Aumentar interés de mora',
+                                            ),
+                                            content: TextField(
+                                              controller: montoController,
+                                              keyboardType:
+                                                  TextInputType.number,
+                                              decoration: const InputDecoration(
+                                                labelText: 'Monto de interés',
+                                              ),
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(
+                                                  context,
+                                                  false,
+                                                ),
+                                                child: const Text('Cancelar'),
+                                              ),
+                                              ElevatedButton(
+                                                onPressed: () => Navigator.pop(
+                                                  context,
+                                                  true,
+                                                ),
+                                                child: const Text('Aplicar'),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+
+                                        if (aplicar == true) {
+                                          final monto = double.tryParse(
+                                            montoController.text.trim(),
+                                          );
+                                          if (monto == null || monto <= 0) {
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  'Ingrese un monto válido',
+                                                ),
+                                              ),
+                                            );
+                                            return;
+                                          }
+                                          await _aplicarInteresCuota(
+                                            cuota['id'],
+                                            monto,
+                                          );
+                                          Navigator.pop(context);
+                                        }
+                                      },
+                                      icon: const Icon(
+                                        Icons.warning_amber_rounded,
+                                      ),
+                                      label: const Text('Aumentar interés'),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      })
+                      .toList();
+                }),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _aplicarInteresCuota(int cuotaId, double monto) async {
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/agregar-interes-mora?admin_id=${SessionGlobal.usuarioId}&cuota_id=$cuotaId&monto_interes=$monto',
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Interés agregado correctamente'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        final body = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(body['detail'] ?? 'No se pudo aplicar el interés'),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _editarClienteDialog(Map<String, dynamic> cliente) async {
+    final nombresController = TextEditingController(text: cliente['nombres']);
+    final telefonoController = TextEditingController(text: cliente['telefono']);
+    String diaCobro = cliente['dia_cobro'] ?? 'lunes';
+    bool activo = cliente['activo'] ?? true;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Editar Cliente'),
+        content: SingleChildScrollView(
+          child: Column(
+            children: [
+              TextField(
+                controller: nombresController,
+                decoration: const InputDecoration(labelText: 'Nombres'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: telefonoController,
+                decoration: const InputDecoration(labelText: 'Teléfono'),
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                value: diaCobro,
+                decoration: const InputDecoration(labelText: 'Día de cobro'),
+                items:
+                    [
+                          'lunes',
+                          'martes',
+                          'miércoles',
+                          'jueves',
+                          'viernes',
+                          'sábado',
+                          'domingo',
+                        ]
+                        .map(
+                          (dia) => DropdownMenuItem(
+                            value: dia,
+                            child: Text(
+                              dia[0].toUpperCase() + dia.substring(1),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (value) => diaCobro = value ?? 'lunes',
+              ),
+              const SizedBox(height: 10),
+              SwitchListTile(
+                title: const Text('Activo'),
+                value: activo,
+                onChanged: (value) => setState(() => activo = value),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _editarCliente(
+                cliente['id'],
+                nombresController.text,
+                telefonoController.text,
+                diaCobro,
+                activo,
+              );
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editarCliente(
+    int id,
+    String nombres,
+    String telefono,
+    String diaCobro,
+    bool activo,
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/editar-cliente?admin_id=${SessionGlobal.usuarioId}&cliente_id=$id',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'nombres': nombres,
+          'telefono': telefono,
+          'dia_cobro': diaCobro,
+          'activo': activo,
+        }),
+      );
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Cliente actualizado')));
+        _cargarClientes();
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error['detail'] ?? 'Error al editar cliente')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Administrar Clientes'),
+        backgroundColor: Colors.teal,
+      ),
+      body: _cargando
+          ? const Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              itemCount: _clientes.length,
+              itemBuilder: (context, index) {
+                final cliente = _clientes[index];
+                return Card(
+                  child: ListTile(
+                    title: Text(cliente['nombres'] ?? ''),
+                    subtitle: Text(
+                      'Día: ${cliente['dia_cobro'] ?? ''} | Tel: ${cliente['telefono'] ?? ''}',
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.receipt_long,
+                            color: Colors.orange,
+                          ),
+                          onPressed: () =>
+                              _mostrarDetallesClienteAdmin(cliente),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit, color: Colors.green),
+                          onPressed: () => _editarClienteDialog(cliente),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          onPressed: () => _eliminarCliente(cliente['id']),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
     );
   }
@@ -1828,6 +2516,11 @@ class _BuscarClienteScreenState extends State<BuscarClienteScreen> {
                             'Deuda: \$${prestamo['deuda_restante']} | Cuotas: $cPendientes pendientes',
                             style: const TextStyle(fontSize: 12),
                           ),
+                          const SizedBox(height: 6),
+                          TextButton(
+                            onPressed: () => _mostrarCuotasDialog(prestamo),
+                            child: const Text('Ver cuotas'),
+                          ),
                         ],
                       ),
                     );
@@ -1848,6 +2541,135 @@ class _BuscarClienteScreenState extends State<BuscarClienteScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  Future<void> _mostrarCuotasDialog(Map prestamo) async {
+    final cuotas = prestamo['cuotas'] as List;
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Cuotas del préstamo \$${prestamo['monto_prestado']}'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: cuotas.map<Widget>((cuota) {
+              final pagada = cuota['pagada'] ?? false;
+              return Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Cuota #${cuota['numero']} - Valor: \$${cuota['valor']}',
+                      ),
+                      Text('Vence: ${cuota['vencimiento']}'),
+                      Text('Pagada: ${pagada ? 'Sí' : 'No'}'),
+                      if (SessionGlobal.rol == 'administrador')
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: () async {
+                              // Pedir monto de interés
+                              final montoController = TextEditingController();
+                              final result = await showDialog<bool>(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('Agregar interés de mora'),
+                                  content: TextField(
+                                    controller: montoController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Monto interés',
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(context, false),
+                                      child: const Text('Cancelar'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(context, true),
+                                      child: const Text('Aplicar'),
+                                    ),
+                                  ],
+                                ),
+                              );
+
+                              if (result == true) {
+                                final text = montoController.text.trim();
+                                if (text.isEmpty) return;
+                                final monto = double.tryParse(text);
+                                if (monto == null) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Monto inválido'),
+                                    ),
+                                  );
+                                  return;
+                                }
+
+                                await _aplicarInteres(cuota['id'], monto);
+                                Navigator.pop(
+                                  context,
+                                ); // cerrar listado de cuotas
+                              }
+                            },
+                            child: const Text('Agregar interés'),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _aplicarInteres(int cuotaId, double monto) async {
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/agregar-interes-mora?admin_id=${SessionGlobal.usuarioId}&cuota_id=$cuotaId&monto_interes=$monto',
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Interés aplicado correctamente'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        String msg = 'Error al aplicar interés';
+        try {
+          final body = jsonDecode(response.body);
+          if (body['detail'] != null) msg = body['detail'].toString();
+        } catch (_) {}
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
