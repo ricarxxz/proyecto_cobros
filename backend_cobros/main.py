@@ -9,6 +9,7 @@ from datetime import datetime, date, timedelta
 from passlib.context import CryptContext
 import enum
 import os
+from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -183,6 +184,11 @@ class PrestamoRegistro(BaseModel):
 class PagoCuotaRegistro(BaseModel):
     cuota_id: int
     cantidad_pagada: float
+
+class GestionCuotaVencidaRequest(BaseModel):
+    cuota_id: int
+    accion: str
+    nuevo_porcentaje: Optional[float] = None
 
 class GastoDiaRegistro(BaseModel):
     concepto: str
@@ -500,6 +506,102 @@ def listar_clientes_admin(admin_id: int, db: Session = Depends(get_db)):
         }
         for c in clientes
     ]
+
+
+@app.get("/api/admin/alertas-cuotas-vencidas")
+def alertas_cuotas_vencidas(admin_id: int, db: Session = Depends(get_db)):
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden ver alertas")
+
+    hoy = date.today()
+    cuotas = db.query(Cuota).filter(Cuota.pagada == False, Cuota.fecha_vencimiento <= hoy).all()
+    alertas = []
+
+    for cuota in cuotas:
+        prestamo = db.query(Prestamo).filter(Prestamo.id == cuota.prestamo_id).first()
+        if not prestamo:
+            continue
+
+        cliente = db.query(Cliente).filter(Cliente.id == prestamo.cliente_id).first()
+        if not cliente:
+            continue
+
+        cuota.atrasada = True
+        dias_atrasados = (hoy - cuota.fecha_vencimiento).days if cuota.fecha_vencimiento else 0
+        alertas.append({
+            "id": cuota.id,
+            "cuota_id": cuota.id,
+            "prestamo_id": prestamo.id,
+            "cliente_id": cliente.id,
+            "cliente_nombre": cliente.nombres,
+            "cedula": cliente.cedula,
+            "numero_cuota": cuota.numero_cuota,
+            "valor": cuota.valor_cuota,
+            "pendiente": cuota.valor_pendiente,
+            "vencimiento": cuota.fecha_vencimiento,
+            "dias_atrasados": dias_atrasados,
+        })
+
+    db.commit()
+    return alertas
+
+
+@app.post("/api/admin/gestionar-cuota-vencida")
+def gestionar_cuota_vencida(request: GestionCuotaVencidaRequest, admin_id: int, db: Session = Depends(get_db)):
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden gestionar cuotas vencidas")
+
+    cuota = db.query(Cuota).filter(Cuota.id == request.cuota_id).first()
+    if not cuota:
+        raise HTTPException(status_code=404, detail="Cuota no encontrada")
+
+    prestamo = db.query(Prestamo).filter(Prestamo.id == cuota.prestamo_id).first()
+    if not prestamo:
+        raise HTTPException(status_code=404, detail="Préstamo no encontrado")
+
+    if request.accion == "dejar":
+        cuota.atrasada = True
+        db.commit()
+        return {"status": "success", "mensaje": "Se dejó la cuota tal como está"}
+
+    if request.accion == "agregar_cuota":
+        nueva_fecha = (cuota.fecha_vencimiento + timedelta(days=7)) if cuota.fecha_vencimiento else date.today() + timedelta(days=7)
+        ultima_cuota = db.query(Cuota).filter(Cuota.prestamo_id == prestamo.id).order_by(Cuota.numero_cuota.desc()).first()
+        nueva_numero = (ultima_cuota.numero_cuota if ultima_cuota else 0) + 1
+        valor_cuota = cuota.valor_cuota or 0.0
+        nueva_cuota = Cuota(
+            prestamo_id=prestamo.id,
+            numero_cuota=nueva_numero,
+            valor_cuota=valor_cuota,
+            fecha_vencimiento=nueva_fecha,
+            valor_pendiente=valor_cuota,
+            pagada=False,
+            atrasada=False,
+        )
+        db.add(nueva_cuota)
+        prestamo.total_deuda = (prestamo.total_deuda or 0.0) + valor_cuota
+        prestamo.deuda_restante = (prestamo.deuda_restante or 0.0) + valor_cuota
+        db.commit()
+        return {"status": "success", "mensaje": "Se agregó una cuota extra"}
+
+    if request.accion == "aplicar_interes":
+        if request.nuevo_porcentaje is None:
+            raise HTTPException(status_code=400, detail="Debe indicar el porcentaje")
+        porcentaje_anterior = prestamo.interes_porcentaje or 0.0
+        prestamo.interes_porcentaje = request.nuevo_porcentaje
+        if prestamo.deuda_restante is not None and prestamo.deuda_restante > 0:
+            delta = request.nuevo_porcentaje - porcentaje_anterior
+            if delta > 0:
+                aumento = prestamo.deuda_restante * (delta / 100)
+                prestamo.deuda_restante = prestamo.deuda_restante + aumento
+                prestamo.total_deuda = (prestamo.total_deuda or 0.0) + aumento
+        cuota.atrasada = True
+        db.commit()
+        return {"status": "success", "mensaje": f"Se ajustó el interés a {request.nuevo_porcentaje}%"}
+
+    raise HTTPException(status_code=400, detail="Acción no soportada")
 
 
 @app.post("/api/admin/editar-cliente")

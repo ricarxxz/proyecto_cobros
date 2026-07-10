@@ -3,6 +3,7 @@ import 'colors.dart';
 import 'app_styles.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'cierre_dia_service.dart';
 
 void main() => runApp(
   MaterialApp(
@@ -17,6 +18,32 @@ class SessionGlobal {
   static int? usuarioId;
   static String? nombreUsuario;
   static String? rol;
+}
+
+String obtenerTextoVistaClientes(bool esAdmin, String diaSeleccionado) {
+  if (esAdmin) {
+    return 'Vista general de todos los días';
+  }
+  final dia = diaSeleccionado[0].toUpperCase() + diaSeleccionado.substring(1);
+  return 'Clientes del día $dia';
+}
+
+Future<bool> verificarBloqueo(BuildContext context, {String? mensaje}) async {
+  final bloqueado = await CierreDiaService.isBlockedNow();
+  if (bloqueado) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mensaje ?? 'El cierre del día está activo hasta las 23:59.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+    return true;
+  }
+  return false;
 }
 
 // ============= PANTALLA DE LOGIN =============
@@ -290,7 +317,10 @@ class MenuPrincipal extends StatefulWidget {
 class _MenuPrincipalState extends State<MenuPrincipal> {
   String _diaSeleccionado = 'lunes';
   List<dynamic> _clientes = [];
+  List<dynamic> _alertasCuotas = [];
   bool _cargandoClientes = false;
+  bool _cargandoAlertas = false;
+  final Map<int, TextEditingController> _controladoresPorcentaje = {};
 
   final List<String> _diasSemana = [
     'lunes',
@@ -308,36 +338,218 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
   void initState() {
     super.initState();
     _cargarClientesPorDia();
+    if (_esAdmin) {
+      _cargarAlertasCuotasVencidas();
+    }
   }
 
   Future<void> _cargarClientesPorDia() async {
+    if (!mounted) return;
     setState(() => _cargandoClientes = true);
     try {
       String url;
       if (_esAdmin) {
         url =
-            'https://proyecto-cobros.onrender.com/api/clientes/dia/$_diaSeleccionado?trabajador_id=${SessionGlobal.usuarioId}';
+            'https://proyecto-cobros.onrender.com/api/admin/listar-clientes?admin_id=${SessionGlobal.usuarioId}';
       } else {
         url =
             'https://proyecto-cobros.onrender.com/api/clientes/dia/$_diaSeleccionado?usuario_id=${SessionGlobal.usuarioId}';
       }
       final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && mounted) {
         setState(() {
           _clientes = jsonDecode(response.body);
         });
-      } else {
+      } else if (mounted) {
         setState(() {
           _clientes = [];
         });
       }
     } catch (e) {
-      setState(() {
-        _clientes = [];
-      });
+      if (mounted) {
+        setState(() {
+          _clientes = [];
+        });
+      }
     } finally {
-      setState(() => _cargandoClientes = false);
+      if (mounted) {
+        setState(() => _cargandoClientes = false);
+      }
     }
+  }
+
+  Future<void> _cargarAlertasCuotasVencidas() async {
+    if (!mounted) return;
+    setState(() => _cargandoAlertas = true);
+    try {
+      final response = await http.get(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/alertas-cuotas-vencidas?admin_id=${SessionGlobal.usuarioId}',
+        ),
+      );
+      if (response.statusCode == 200 && mounted) {
+        setState(() {
+          _alertasCuotas = jsonDecode(response.body);
+        });
+      } else if (mounted) {
+        setState(() {
+          _alertasCuotas = [];
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _alertasCuotas = [];
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _cargandoAlertas = false);
+      }
+    }
+  }
+
+  Future<void> _gestionarCuotaVencida(
+    int cuotaId,
+    String accion, {
+    double? nuevoPorcentaje,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/gestionar-cuota-vencida?admin_id=${SessionGlobal.usuarioId}',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'cuota_id': cuotaId,
+          'accion': accion,
+          if (nuevoPorcentaje != null) 'nuevo_porcentaje': nuevoPorcentaje,
+        }),
+      );
+      if (response.statusCode == 200 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Acción aplicada correctamente')),
+        );
+        await _cargarAlertasCuotasVencidas();
+      } else if (mounted) {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error['detail'] ?? 'No se pudo procesar')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al procesar la cuota: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _buildAlertasCuotasSection() {
+    if (!_esAdmin) {
+      return const SizedBox.shrink();
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Alertas de cuotas vencidas',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            if (_cargandoAlertas)
+              const Center(child: CircularProgressIndicator())
+            else if (_alertasCuotas.isEmpty)
+              const Text('No hay cuotas vencidas por revisar')
+            else
+              ..._alertasCuotas.map((alerta) {
+                final controller = _controladoresPorcentaje.putIfAbsent(
+                  alerta['cuota_id'],
+                  () => TextEditingController(text: '20'),
+                );
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10.0),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.orange.shade200),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${alerta['cliente_nombre']} • Cuota ${alerta['numero_cuota']}',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Vencida hace ${alerta['dias_atrasados']} días • Pendiente: \$${alerta['pendiente']}',
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: controller,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'Porcentaje',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: () => _gestionarCuotaVencida(
+                                alerta['cuota_id'],
+                                'dejar',
+                              ),
+                              child: const Text('Dejar'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: () => _gestionarCuotaVencida(
+                                alerta['cuota_id'],
+                                'agregar_cuota',
+                              ),
+                              icon: const Icon(Icons.add_circle_outline),
+                              label: const Text('Agregar cuota'),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: () => _gestionarCuotaVencida(
+                                alerta['cuota_id'],
+                                'aplicar_interes',
+                                nuevoPorcentaje: double.tryParse(
+                                  controller.text,
+                                ),
+                              ),
+                              icon: const Icon(Icons.percent),
+                              label: const Text('Aplicar interés'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -474,8 +686,9 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
               ListTile(
                 leading: const Icon(Icons.attach_money, color: Colors.blue),
                 title: const Text('Registrar Cobro'),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(context);
+                  if (await verificarBloqueo(context)) return;
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -487,8 +700,9 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
               ListTile(
                 leading: const Icon(Icons.add_card, color: Colors.orange),
                 title: const Text('Nuevo Préstamo'),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(context);
+                  if (await verificarBloqueo(context)) return;
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -524,17 +738,6 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                 );
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.lock_clock, color: Colors.red),
-              title: const Text('Cierre del Día'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const CierreDiaScreen()),
-                );
-              },
-            ),
           ],
         ),
       ),
@@ -543,60 +746,71 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
           const Divider(),
           // Barra de días y lista de clientes
           const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: _diasSemana.map((dia) {
-                final seleccionado = _diaSeleccionado == dia;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                  child: ChoiceChip(
-                    label: Text(dia[0].toUpperCase() + dia.substring(1)),
-                    selected: seleccionado,
-                    onSelected: (val) {
-                      setState(() {
-                        _diaSeleccionado = dia;
-                      });
-                      _cargarClientesPorDia();
-                    },
-                    selectedColor: Colors.blue,
-                    labelStyle: TextStyle(
-                      color: seleccionado ? Colors.white : Colors.black,
-                      fontWeight: FontWeight.bold,
+          if (!_esAdmin)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _diasSemana.map((dia) {
+                  final seleccionado = _diaSeleccionado == dia;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                    child: ChoiceChip(
+                      label: Text(dia[0].toUpperCase() + dia.substring(1)),
+                      selected: seleccionado,
+                      onSelected: (val) {
+                        setState(() {
+                          _diaSeleccionado = dia;
+                        });
+                        _cargarClientesPorDia();
+                      },
+                      selectedColor: Colors.blue,
+                      labelStyle: TextStyle(
+                        color: seleccionado ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                );
-              }).toList(),
+                  );
+                }).toList(),
+              ),
             ),
-          ),
           const SizedBox(height: 10),
           Expanded(
-            child: _esAdmin
-                ? const Center(
-                    child: Text(
-                      'Como administrador, use el menú para gestionar trabajadores y clientes.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 16),
-                    ),
-                  )
-                : _cargandoClientes
+            child: _cargandoClientes
                 ? const Center(child: CircularProgressIndicator())
-                : _clientes.isEmpty
-                ? const Center(child: Text('No hay clientes para este día'))
-                : ListView.builder(
-                    itemCount: _clientes.length,
-                    itemBuilder: (context, idx) {
-                      final cliente = _clientes[idx];
-                      return Card(
-                        child: ListTile(
-                          leading: const Icon(Icons.person),
-                          title: Text(cliente['nombres'] ?? ''),
-                          subtitle: Text(
-                            'Cédula: ${cliente['cedula']} | Tel: ${cliente['telefono']}',
+                : ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: Text(
+                          obtenerTextoVistaClientes(_esAdmin, _diaSeleccionado),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                      );
-                    },
+                      ),
+                      if (!_esAdmin && _clientes.isEmpty)
+                        const Center(
+                          child: Text('No hay clientes para este día'),
+                        )
+                      else if (_esAdmin && _clientes.isEmpty)
+                        const Center(child: Text('No hay clientes registrados'))
+                      else
+                        ..._clientes.map((cliente) {
+                          return Card(
+                            child: ListTile(
+                              leading: const Icon(Icons.person),
+                              title: Text(cliente['nombres'] ?? ''),
+                              subtitle: Text(
+                                'Cédula: ${cliente['cedula']} | Tel: ${cliente['telefono']} | Día: ${cliente['dia_cobro'] ?? _diaSeleccionado}',
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      const SizedBox(height: 12),
+                      _buildAlertasCuotasSection(),
+                    ],
                   ),
           ),
         ],
@@ -1635,8 +1849,24 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
   String _frecuencia = 'mensual';
   double _interes = 20.0;
   bool _isLoading = false;
+  bool _bloqueado = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _verificarBloqueo();
+  }
+
+  Future<void> _verificarBloqueo() async {
+    final bloqueado = await CierreDiaService.isBlockedNow();
+    if (mounted) {
+      setState(() => _bloqueado = bloqueado);
+    }
+  }
 
   Future<void> _registrarCliente() async {
+    if (await verificarBloqueo(context)) return;
+
     if (_nombresController.text.isEmpty ||
         _cedulaController.text.isEmpty ||
         _telefonoController.text.isEmpty ||
@@ -1833,11 +2063,29 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
                 },
               ),
               const SizedBox(height: 30),
+              if (_bloqueado)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[100],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'El cierre del día está activo hasta las 23:59. No se permiten préstamos ni cobros.',
+                    style: TextStyle(
+                      color: Colors.orange,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : _registrarCliente,
+                  onPressed: (_isLoading || _bloqueado)
+                      ? null
+                      : _registrarCliente,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
                   ),
@@ -1872,6 +2120,13 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
   int? _clienteId;
   String? _nombreCliente;
   bool _isLoading = false;
+  bool _bloqueado = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _verificarBloqueo();
+  }
 
   @override
   void dispose() {
@@ -1919,7 +2174,16 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
     }
   }
 
+  Future<void> _verificarBloqueo() async {
+    final bloqueado = await CierreDiaService.isBlockedNow();
+    if (mounted) {
+      setState(() => _bloqueado = bloqueado);
+    }
+  }
+
   Future<void> _crearPrestamo() async {
+    if (await verificarBloqueo(context)) return;
+
     if (_clienteId == null ||
         _montoController.text.isEmpty ||
         _cuotasController.text.isEmpty) {
@@ -2058,11 +2322,27 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
                 },
               ),
               const SizedBox(height: 30),
+              if (_bloqueado)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[100],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'El cierre del día está activo hasta las 23:59. No se permiten préstamos ni cobros.',
+                    style: TextStyle(
+                      color: Colors.orange,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: (_clienteId == null || _isLoading)
+                  onPressed: (_clienteId == null || _isLoading || _bloqueado)
                       ? null
                       : _crearPrestamo,
                   style: ElevatedButton.styleFrom(
@@ -2096,6 +2376,20 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
   List<dynamic> _cuotasPendientes = [];
   int? _clienteId;
   bool _isLoading = false;
+  bool _bloqueado = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _verificarBloqueo();
+  }
+
+  Future<void> _verificarBloqueo() async {
+    final bloqueado = await CierreDiaService.isBlockedNow();
+    if (mounted) {
+      setState(() => _bloqueado = bloqueado);
+    }
+  }
 
   Future<void> _cargarCuotas() async {
     if (_cedulaController.text.isEmpty) {
@@ -2265,11 +2559,27 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
                 ),
               ),
               const SizedBox(height: 30),
+              if (_bloqueado)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[100],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'El cierre del día está activo hasta las 23:59. No se permiten préstamos ni cobros.',
+                    style: TextStyle(
+                      color: Colors.orange,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: _isLoading || _clienteInfo == null
+                  onPressed: _isLoading || _clienteInfo == null || _bloqueado
                       ? null
                       : _registrarPago,
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
@@ -2286,6 +2596,8 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
   }
 
   Future<void> _registrarPago() async {
+    if (await verificarBloqueo(context)) return;
+
     if (_pagoController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Ingrese el valor a cobrar")),
@@ -2698,11 +3010,29 @@ class ResumenDiaScreen extends StatefulWidget {
 class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
   Map<String, dynamic>? _resumen;
   bool _isLoading = true;
+  bool _bloqueado = false;
+  final _conceptoController = TextEditingController();
+  final _valorController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _cargarResumen();
+    _verificarBloqueo();
+  }
+
+  @override
+  void dispose() {
+    _conceptoController.dispose();
+    _valorController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _verificarBloqueo() async {
+    final bloqueado = await CierreDiaService.isBlockedNow();
+    if (mounted) {
+      setState(() => _bloqueado = bloqueado);
+    }
   }
 
   Future<void> _cargarResumen() async {
@@ -2725,81 +3055,268 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
     }
   }
 
+  Future<void> _mostrarDialogoGasto() async {
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Agregar gasto del día'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _conceptoController,
+              decoration: const InputDecoration(labelText: 'Concepto'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _valorController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Valor'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final concepto = _conceptoController.text.trim();
+              final valor = _valorController.text.trim();
+
+              if (concepto.isEmpty || valor.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Complete concepto y valor')),
+                );
+                return;
+              }
+
+              Navigator.pop(context);
+              await _registrarGasto(concepto, valor);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _registrarGasto(String concepto, String valor) async {
+    if (await verificarBloqueo(
+      context,
+      mensaje:
+          'No puedes agregar gastos mientras el cierre del día está activo.',
+    )) {
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/gastos/registrar?usuario_id=${SessionGlobal.usuarioId}',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'concepto': concepto, 'valor': double.parse(valor)}),
+      );
+
+      if (response.statusCode == 200) {
+        _conceptoController.clear();
+        _valorController.clear();
+        await _cargarResumen();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gasto registrado correctamente')),
+        );
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error['detail'] ?? 'Error al registrar gasto'),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _hacerCierre() async {
+    if (await verificarBloqueo(
+      context,
+      mensaje: 'El cierre del día ya está activo para este turno.',
+    )) {
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/cierre-dia/crear?usuario_id=${SessionGlobal.usuarioId}',
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        await CierreDiaService.saveClosedAt(DateTime.now());
+        await _verificarBloqueo();
+        final data = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Cierre completado\nSaldo Neto: \$${data['saldo_neto']}',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error['detail'] ?? 'Error al hacer cierre')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Ingresos del Día")),
+      appBar: AppBar(title: const Text('Resumen del Día')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _resumen == null
-          ? const Center(child: Text("Sin datos"))
+          ? const Center(child: Text('Sin datos'))
           : Padding(
               padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Fecha: ${_resumen!['fecha']}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 15),
+                            Text(
+                              'Cuotas: \$${_resumen!['ingreso_cuotas']}',
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                            Text(
+                              'Cartulinas: \$${_resumen!['ingreso_cartulinas']}',
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                            const Divider(),
+                            Text(
+                              'Total Ingresos: \$${_resumen!['total_ingresos']}',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    if (SessionGlobal.rol == 'administrador') ...[
+                      Row(
                         children: [
-                          Text(
-                            "Fecha: ${_resumen!['fecha']}",
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isLoading || _bloqueado
+                                  ? null
+                                  : _mostrarDialogoGasto,
+                              icon: const Icon(Icons.receipt_long),
+                              label: const Text('Agregar gasto'),
+                            ),
                           ),
-                          const SizedBox(height: 15),
-                          Text(
-                            "Cuotas: \$${_resumen!['ingreso_cuotas']}",
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                          Text(
-                            "Cartulinas: \$${_resumen!['ingreso_cartulinas']}",
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                          const Divider(),
-                          Text(
-                            "Total Ingresos: \$${_resumen!['total_ingresos']}",
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isLoading || _bloqueado
+                                  ? null
+                                  : _hacerCierre,
+                              icon: const Icon(Icons.lock_clock),
+                              label: const Text('Hacer cierre'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    "Gastos:",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  ..._resumen!['gastos'].map<Widget>((gasto) {
-                    return Text("${gasto['concepto']}: \$${gasto['valor']}");
-                  }).toList(),
-                  const Divider(),
-                  Text(
-                    "Total Gastos: \$${_resumen!['total_gastos']}",
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.red,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Container(
-                    padding: const EdgeInsets.all(15),
-                    color: Colors.blue[100],
-                    child: Text(
-                      "Saldo Neto: \$${_resumen!['saldo_neto']}",
-                      style: const TextStyle(
-                        fontSize: 18,
+                      if (_bloqueado)
+                        Container(
+                          margin: const EdgeInsets.only(top: 10),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.orange[100],
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'El cierre está activo hasta las 23:59. No se permiten préstamos ni cobros.',
+                            style: TextStyle(
+                              color: Colors.orange,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 20),
+                    ],
+                    const Text(
+                      'Gastos:',
+                      style: TextStyle(
+                        fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ),
-                ],
+                    ..._resumen!['gastos'].map<Widget>((gasto) {
+                      return Text('${gasto['concepto']}: \$${gasto['valor']}');
+                    }).toList(),
+                    const Divider(),
+                    Text(
+                      'Total Gastos: \$${_resumen!['total_gastos']}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(15),
+                      color: Colors.blue[100],
+                      child: Text(
+                        'Saldo Neto: \$${_resumen!['saldo_neto']}',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
     );
