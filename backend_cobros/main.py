@@ -1248,7 +1248,12 @@ def registrar_pago(pago: PagoCuotaRegistro, usuario_id: int, db: Session = Depen
         raise HTTPException(status_code=404, detail="Cuota no encontrada")
     
     prestamo = db.query(Prestamo).filter(Prestamo.id == cuota.prestamo_id).first()
+    if not prestamo:
+        raise HTTPException(status_code=404, detail="Préstamo no encontrado")
+    
     cliente = db.query(Cliente).filter(Cliente.id == prestamo.cliente_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
     
     # Si es trabajador, verificar que sea su cliente
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
@@ -1290,6 +1295,8 @@ def registrar_pago(pago: PagoCuotaRegistro, usuario_id: int, db: Session = Depen
         ingreso = IngresoDia(usuario_id=usuario_id)
         db.add(ingreso)
     
+    ingreso.ingreso_cartulinas = ingreso.ingreso_cartulinas or 0.0
+    ingreso.ingreso_cuotas = ingreso.ingreso_cuotas or 0.0
     ingreso.ingreso_cuotas += pago.cantidad_pagada
     ingreso.total_ingresos = ingreso.ingreso_cuotas + ingreso.ingreso_cartulinas
     
