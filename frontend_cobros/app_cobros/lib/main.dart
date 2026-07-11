@@ -413,6 +413,7 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
     int cuotaId,
     String accion, {
     double? nuevoPorcentaje,
+    String? frecuencia,
   }) async {
     try {
       final response = await http.post(
@@ -424,6 +425,7 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
           'cuota_id': cuotaId,
           'accion': accion,
           if (nuevoPorcentaje != null) 'nuevo_porcentaje': nuevoPorcentaje,
+          if (frecuencia != null) 'frecuencia': frecuencia,
         }),
       );
       if (response.statusCode == 200 && mounted) {
@@ -444,6 +446,55 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
         );
       }
     }
+  }
+
+  Future<void> _mostrarDialogoRodarCuota(int cuotaId) async {
+    String frecuencia = 'semanal';
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Rodar cuota'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('¿Por cuánto tiempo se rodará la cuota?'),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: frecuencia,
+                decoration: const InputDecoration(
+                  labelText: 'Frecuencia',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'semanal', child: Text('Semanal (7 días)')),
+                  DropdownMenuItem(value: 'quincenal', child: Text('Quincenal (15 días)')),
+                  DropdownMenuItem(value: 'mensual', child: Text('Mensual (30 días)')),
+                ],
+                onChanged: (value) => setDialogState(() => frecuencia = value ?? 'semanal'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _gestionarCuotaVencida(
+                  cuotaId,
+                  'rodar_cuota',
+                  frecuencia: frecuencia,
+                );
+              },
+              child: const Text('Rodar'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildAlertasCuotasSection() {
@@ -521,12 +572,10 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                           runSpacing: 8,
                           children: [
                             ElevatedButton.icon(
-                              onPressed: () => _gestionarCuotaVencida(
-                                alerta['cuota_id'],
-                                'agregar_cuota',
-                              ),
-                              icon: const Icon(Icons.add_circle_outline),
-                              label: const Text('Agregar cuota'),
+                              onPressed: () =>
+                                  _mostrarDialogoRodarCuota(alerta['cuota_id']),
+                              icon: const Icon(Icons.date_range),
+                              label: const Text('Rodar cuota'),
                             ),
                             ElevatedButton.icon(
                               onPressed: () => _gestionarCuotaVencida(

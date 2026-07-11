@@ -189,6 +189,7 @@ class GestionCuotaVencidaRequest(BaseModel):
     cuota_id: int
     accion: str
     nuevo_porcentaje: Optional[float] = None
+    frecuencia: Optional[str] = None
 
 class GastoDiaRegistro(BaseModel):
     concepto: str
@@ -566,25 +567,13 @@ def gestionar_cuota_vencida(request: GestionCuotaVencidaRequest, admin_id: int, 
         db.commit()
         return {"status": "success", "mensaje": "Se dejó la cuota tal como está"}
 
-    if request.accion == "agregar_cuota":
-        nueva_fecha = (cuota.fecha_vencimiento + timedelta(days=7)) if cuota.fecha_vencimiento else date.today() + timedelta(days=7)
-        ultima_cuota = db.query(Cuota).filter(Cuota.prestamo_id == prestamo.id).order_by(Cuota.numero_cuota.desc()).first()
-        nueva_numero = (ultima_cuota.numero_cuota if ultima_cuota else 0) + 1
-        valor_cuota = cuota.valor_cuota or 0.0
-        nueva_cuota = Cuota(
-            prestamo_id=prestamo.id,
-            numero_cuota=nueva_numero,
-            valor_cuota=valor_cuota,
-            fecha_vencimiento=nueva_fecha,
-            valor_pendiente=valor_cuota,
-            pagada=False,
-            atrasada=False,
-        )
-        db.add(nueva_cuota)
-        prestamo.total_deuda = (prestamo.total_deuda or 0.0) + valor_cuota
-        prestamo.deuda_restante = (prestamo.deuda_restante or 0.0) + valor_cuota
+    if request.accion == "rodar_cuota":
+        dias_extra = {"semanal": 7, "quincenal": 15, "mensual": 30}.get(request.frecuencia, 7)
+        nueva_fecha = (cuota.fecha_vencimiento + timedelta(days=dias_extra)) if cuota.fecha_vencimiento else date.today() + timedelta(days=dias_extra)
+        cuota.fecha_vencimiento = nueva_fecha
+        cuota.atrasada = False
         db.commit()
-        return {"status": "success", "mensaje": "Se agregó una cuota extra"}
+        return {"status": "success", "mensaje": f"Cuota rodada {dias_extra} días hasta {nueva_fecha}"}
 
     if request.accion == "aplicar_interes":
         if request.nuevo_porcentaje is None:
@@ -1334,23 +1323,42 @@ def resumen_dia(usuario_id: int, fecha: date = None, db: Session = Depends(get_d
     if not fecha:
         fecha = date.today()
     
-    ingreso = db.query(IngresoDia).filter(
-        IngresoDia.usuario_id == usuario_id,
-        IngresoDia.fecha == fecha
-    ).first()
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    es_admin = usuario and usuario.rol == RolUsuario.ADMINISTRADOR
     
-    gastos = db.query(GastoDia).filter(
-        GastoDia.usuario_id == usuario_id,
-        func.date(GastoDia.fecha_registro) == fecha
-    ).all()
+    if es_admin:
+        ingreso = db.query(
+            func.coalesce(func.sum(IngresoDia.ingreso_cuotas), 0),
+            func.coalesce(func.sum(IngresoDia.ingreso_cartulinas), 0),
+        ).filter(IngresoDia.fecha == fecha).first()
+        
+        gastos = db.query(GastoDia).filter(
+            func.date(GastoDia.fecha_registro) == fecha
+        ).all()
+        
+        ingreso_cuotas = float(ingreso[0] or 0)
+        ingreso_cartulinas = float(ingreso[1] or 0)
+    else:
+        ingreso = db.query(IngresoDia).filter(
+            IngresoDia.usuario_id == usuario_id,
+            IngresoDia.fecha == fecha
+        ).first()
+        
+        gastos = db.query(GastoDia).filter(
+            GastoDia.usuario_id == usuario_id,
+            func.date(GastoDia.fecha_registro) == fecha
+        ).all()
+        
+        ingreso_cuotas = ingreso.ingreso_cuotas if ingreso else 0.0
+        ingreso_cartulinas = ingreso.ingreso_cartulinas if ingreso else 0.0
     
     total_gastos = sum(g.valor for g in gastos)
-    total_ingresos = ingreso.total_ingresos if ingreso else 0.0
+    total_ingresos = ingreso_cuotas + ingreso_cartulinas
     
     return {
         "fecha": fecha,
-        "ingreso_cuotas": ingreso.ingreso_cuotas if ingreso else 0.0,
-        "ingreso_cartulinas": ingreso.ingreso_cartulinas if ingreso else 0.0,
+        "ingreso_cuotas": ingreso_cuotas,
+        "ingreso_cartulinas": ingreso_cartulinas,
         "total_ingresos": total_ingresos,
         "gastos": [{"concepto": g.concepto, "valor": g.valor} for g in gastos],
         "total_gastos": total_gastos,
@@ -1369,24 +1377,26 @@ def crear_cierre_dia(usuario_id: int, fecha: date = None, db: Session = Depends(
     if usuario.rol != RolUsuario.ADMINISTRADOR:
         raise HTTPException(status_code=403, detail="Solo administradores pueden hacer cierre")
     
-    ingreso = db.query(IngresoDia).filter(
-        IngresoDia.usuario_id == usuario_id,
-        IngresoDia.fecha == fecha
-    ).first()
+    # Admin acumula ingresos de todos los usuarios
+    ingreso = db.query(
+        func.coalesce(func.sum(IngresoDia.ingreso_cuotas), 0),
+        func.coalesce(func.sum(IngresoDia.ingreso_cartulinas), 0),
+    ).filter(IngresoDia.fecha == fecha).first()
     
     gastos = db.query(GastoDia).filter(
-        GastoDia.usuario_id == usuario_id,
         func.date(GastoDia.fecha_registro) == fecha
     ).all()
     
     total_gastos = sum(g.valor for g in gastos)
-    total_ingresos = ingreso.total_ingresos if ingreso else 0.0
+    ingreso_cuotas = float(ingreso[0] or 0)
+    ingreso_cartulinas = float(ingreso[1] or 0)
+    total_ingresos = ingreso_cuotas + ingreso_cartulinas
     
     cierre = CierreDia(
         usuario_id=usuario_id,
         fecha_cierre=fecha,
-        total_cuotas_pagadas=ingreso.ingreso_cuotas if ingreso else 0.0,
-        total_cartulinas=ingreso.ingreso_cartulinas if ingreso else 0.0,
+        total_cuotas_pagadas=ingreso_cuotas,
+        total_cartulinas=ingreso_cartulinas,
         total_gastos=total_gastos,
         saldo_neto=total_ingresos - total_gastos
     )
