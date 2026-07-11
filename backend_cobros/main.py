@@ -1445,6 +1445,7 @@ def reporte_cliente(cliente_id: int, db: Session = Depends(get_db)):
             "pagado": prestamo.pagado,
             "fecha_prestamo": prestamo.fecha_prestamo,
             "cuotas": [{
+                "id": c.id,
                 "numero": c.numero_cuota,
                 "valor": c.valor_cuota,
                 "pagada": c.pagada,
