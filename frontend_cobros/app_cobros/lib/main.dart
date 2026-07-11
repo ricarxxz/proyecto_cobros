@@ -339,6 +339,16 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
   bool _cargandoAlertas = false;
   final Map<int, TextEditingController> _controladoresPorcentaje = {};
 
+  // Search
+  final _busquedaController = TextEditingController();
+  List<dynamic> _sugerencias = [];
+  bool _buscando = false;
+  Timer? _debounce;
+
+  // Filters (admin)
+  String? _filtroDia;
+  String? _filtroFrecuencia;
+
   final List<String> _diasSemana = [
     'lunes',
     'martes',
@@ -358,19 +368,35 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
     if (_esAdmin) {
       _cargarAlertasCuotasVencidas();
     }
+    _busquedaController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _busquedaController.removeListener(_onSearchChanged);
+    _busquedaController.dispose();
+    _debounce?.cancel();
+    super.dispose();
   }
 
   Future<void> _cargarClientesPorDia() async {
     if (!mounted) return;
     setState(() => _cargandoClientes = true);
     try {
+      final uid = SessionGlobal.usuarioId;
       String url;
       if (_esAdmin) {
         url =
-            'https://proyecto-cobros.onrender.com/api/admin/listar-clientes?admin_id=${SessionGlobal.usuarioId}';
+            'https://proyecto-cobros.onrender.com/api/admin/listar-clientes?admin_id=$uid';
+        if (_filtroDia != null) {
+          url += '&dia=$_filtroDia';
+        }
+        if (_filtroFrecuencia != null && _filtroFrecuencia!.isNotEmpty) {
+          url += '&frecuencia=$_filtroFrecuencia';
+        }
       } else {
         url =
-            'https://proyecto-cobros.onrender.com/api/clientes/dia/$_diaSeleccionado?usuario_id=${SessionGlobal.usuarioId}';
+            'https://proyecto-cobros.onrender.com/api/clientes/dia/$_diaSeleccionado?usuario_id=$uid';
       }
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200 && mounted) {
@@ -512,6 +538,139 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
         ),
       ),
     );
+  }
+
+  // ===== SEARCH & CLIENT INFO =====
+  void _onSearchChanged() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      _buscarSugerencias();
+    });
+  }
+
+  Future<void> _buscarSugerencias() async {
+    final texto = _busquedaController.text.trim();
+    if (texto.isEmpty) {
+      if (mounted) setState(() => _sugerencias = []);
+      return;
+    }
+
+    setState(() => _buscando = true);
+    try {
+      final uid = SessionGlobal.usuarioId;
+      final esNumero = RegExp(r'^\d+$').hasMatch(texto);
+      final url = esNumero
+          ? 'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=$texto&usuario_id=$uid'
+          : 'https://proyecto-cobros.onrender.com/api/clientes/buscar?nombre=$texto&usuario_id=$uid';
+
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200 && mounted) {
+        setState(() => _sugerencias = jsonDecode(response.body) as List);
+      } else if (mounted) {
+        setState(() => _sugerencias = []);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _sugerencias = []);
+    } finally {
+      if (mounted) setState(() => _buscando = false);
+    }
+  }
+
+  Future<void> _mostrarInfoCliente(dynamic cliente) async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/reportes/cliente/${cliente['id']}',
+        ),
+      );
+      if (response.statusCode != 200 || !mounted) return;
+      final data = jsonDecode(response.body);
+      final historial = data['historial_prestamos'] as List;
+      final cuotasPendientes = historial.expand((p) => (p['cuotas'] as List)
+          .where((c) => !(c['pagada'] ?? false))).toList();
+
+      // Count remaining periods grouped by frequency
+      String infoPeriodos = '';
+      for (var p in historial) {
+        if (!(p['pagado'] ?? false)) {
+          final freq = p['frecuencia'] ?? 'semanal';
+          final cuotas = (p['cuotas'] as List).where(
+            (c) => !(c['pagada'] ?? false)
+          ).length;
+          if (cuotas > 0) {
+            infoPeriodos += '• ${cuotas} ${freq}(es) restantes\n';
+          }
+        }
+      }
+
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(cliente['nombres'] ?? ''),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Cédula: ${cliente['cedula'] ?? ''}'),
+              Text('Tel: ${cliente['telefono'] ?? ''}'),
+              Text('Día de cobro: ${cliente['dia_cobro'] ?? ''}'),
+              const Divider(),
+              Text(
+                'Deuda Total: ${formatearDinero(data['resumen']['deuda_total'])}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  color: Colors.red,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text('Préstamos activos: ${data['resumen']['total_prestamos'] - data['resumen']['prestamos_completos']}'),
+              if (infoPeriodos.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Periodos restantes:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text(infoPeriodos),
+              ],
+              if (cuotasPendientes.isNotEmpty) ...[
+                const Divider(),
+                const Text(
+                  'Próxima cuota:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text('Cuota #${cuotasPendientes[0]['numero']} - ${formatearDinero(cuotasPendientes[0]['valor'])}'),
+                Text('Vence: ${cuotasPendientes[0]['vencimiento']}'),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const RegistroCobrosScreen(),
+                  ),
+                );
+              },
+              child: const Text('Registrar Cobro'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
   }
 
   Widget _buildAlertasCuotasSection() {
@@ -829,9 +988,131 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
       ),
       body: Column(
         children: [
-          const Divider(),
-          // Barra de días y lista de clientes
-          const SizedBox(height: 10),
+          // Search bar
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: TextField(
+              controller: _busquedaController,
+              decoration: InputDecoration(
+                hintText: 'Buscar cliente (nombre o cédula)',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                suffixIcon: _buscando
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 20, height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : null,
+              ),
+            ),
+          ),
+          // Suggestions
+          if (_sugerencias.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 12),
+              constraints: const BoxConstraints(maxHeight: 180),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(4),
+                color: Colors.white,
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _sugerencias.length,
+                itemBuilder: (context, i) {
+                  final c = _sugerencias[i];
+                  return ListTile(
+                    dense: true,
+                    title: Text(c['nombres'] ?? ''),
+                    subtitle: Text('${c['cedula']} | ${c['dia_cobro'] ?? ''}'),
+                    onTap: () {
+                      setState(() {
+                        _busquedaController.clear();
+                        _sugerencias = [];
+                      });
+                      _mostrarInfoCliente(c);
+                    },
+                  );
+                },
+              ),
+            ),
+          // Filters
+          if (_esAdmin) ...[
+            const SizedBox(height: 6),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  ..._diasSemana.map((dia) {
+                    final seleccionado = _filtroDia == dia;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      child: ChoiceChip(
+                        label: Text(dia[0].toUpperCase() + dia.substring(1)),
+                        selected: seleccionado,
+                        onSelected: (val) {
+                          setState(() {
+                            _filtroDia = val ? dia : null;
+                          });
+                          _cargarClientesPorDia();
+                        },
+                        selectedColor: Colors.blue,
+                        labelStyle: TextStyle(
+                          color: seleccionado ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Semanal', style: TextStyle(fontSize: 12)),
+                    selected: _filtroFrecuencia == 'semanal',
+                    onSelected: (val) {
+                      setState(() {
+                        _filtroFrecuencia = val ? 'semanal' : null;
+                      });
+                      _cargarClientesPorDia();
+                    },
+                    selectedColor: Colors.green,
+                  ),
+                  const SizedBox(width: 4),
+                  ChoiceChip(
+                    label: const Text('Quincenal', style: TextStyle(fontSize: 12)),
+                    selected: _filtroFrecuencia == 'quincenal',
+                    onSelected: (val) {
+                      setState(() {
+                        _filtroFrecuencia = val ? 'quincenal' : null;
+                      });
+                      _cargarClientesPorDia();
+                    },
+                    selectedColor: Colors.green,
+                  ),
+                  const SizedBox(width: 4),
+                  ChoiceChip(
+                    label: const Text('Mensual', style: TextStyle(fontSize: 12)),
+                    selected: _filtroFrecuencia == 'mensual',
+                    onSelected: (val) {
+                      setState(() {
+                        _filtroFrecuencia = val ? 'mensual' : null;
+                      });
+                      _cargarClientesPorDia();
+                    },
+                    selectedColor: Colors.green,
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          // Worker day chips
           if (!_esAdmin)
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -859,23 +1140,13 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                 }).toList(),
               ),
             ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Expanded(
             child: _cargandoClientes
                 ? const Center(child: CircularProgressIndicator())
                 : ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8.0),
-                        child: Text(
-                          obtenerTextoVistaClientes(_esAdmin, _diaSeleccionado),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
                       if (!_esAdmin && _clientes.isEmpty)
                         const Center(
                           child: Text('No hay clientes para este día'),
@@ -891,6 +1162,8 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                               subtitle: Text(
                                 'Cédula: ${cliente['cedula']} | Tel: ${cliente['telefono']} | Día: ${cliente['dia_cobro'] ?? _diaSeleccionado}',
                               ),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () => _mostrarInfoCliente(cliente),
                             ),
                           );
                         }).toList(),

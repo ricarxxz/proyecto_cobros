@@ -87,6 +87,7 @@ class Prestamo(Base):
     fecha_prestamo = Column(DateTime, default=datetime.utcnow)
     pagado = Column(Boolean, default=False)
     fecha_finalizacion = Column(DateTime, nullable=True)
+    frecuencia = Column(String, default="semanal")
 
 class Cuota(Base):
     __tablename__ = "cuotas"
@@ -203,6 +204,14 @@ Base.metadata.create_all(bind=engine)
 try:
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS creado_por INTEGER"))
+        conn.commit()
+except Exception:
+    pass
+
+# Migración: agregar columna frecuencia a prestamos si no existe
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE prestamos ADD COLUMN IF NOT EXISTS frecuencia VARCHAR DEFAULT 'semanal'"))
         conn.commit()
 except Exception:
     pass
@@ -532,15 +541,26 @@ def listar_asignaciones(admin_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/admin/listar-clientes")
-def listar_clientes_admin(admin_id: int, db: Session = Depends(get_db)):
+def listar_clientes_admin(
+    admin_id: int,
+    dia: str = None,
+    frecuencia: str = None,
+    db: Session = Depends(get_db)
+):
     admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
     if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
         raise HTTPException(status_code=403, detail="Solo administradores pueden ver clientes")
 
     # Solo clientes registrados por este admin
-    clientes = db.query(Cliente).filter(Cliente.usuario_id == admin_id).all()
-    return [
-        {
+    query = db.query(Cliente).filter(Cliente.usuario_id == admin_id)
+
+    if dia:
+        query = query.filter(Cliente.dia_cobro == dia)
+
+    clientes = query.all()
+    result = []
+    for c in clientes:
+        item = {
             "id": c.id,
             "nombres": c.nombres,
             "cedula": c.cedula,
@@ -549,8 +569,16 @@ def listar_clientes_admin(admin_id: int, db: Session = Depends(get_db)):
             "activo": c.activo,
             "fecha_creacion": c.fecha_creacion
         }
-        for c in clientes
-    ]
+        if frecuencia:
+            prestamos = db.query(Prestamo).filter(
+                Prestamo.cliente_id == c.id,
+                Prestamo.frecuencia == frecuencia,
+                Prestamo.pagado == False
+            ).first()
+            if not prestamos:
+                continue
+        result.append(item)
+    return result
 
 
 @app.get("/api/admin/alertas-cuotas-vencidas")
@@ -888,7 +916,8 @@ def registrar_cliente_con_prestamo(datos: ClientePrestamoRegistro, admin_id: int
         total_deuda=total_deuda,
         deuda_restante=total_deuda,
         interes_porcentaje=datos.interes_porcentaje,
-        valor_cartulina=valor_cartulina
+        valor_cartulina=valor_cartulina,
+        frecuencia=datos.frecuencia
     )
     db.add(nuevo_prestamo)
     db.commit()
@@ -1111,7 +1140,8 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
         total_deuda=total_deuda,
         deuda_restante=total_deuda,
         interes_porcentaje=prestamo.interes_porcentaje,
-        valor_cartulina=valor_cartulina
+        valor_cartulina=valor_cartulina,
+        frecuencia=prestamo.frecuencia
     )
     db.add(nuevo_prestamo)
     db.commit()
@@ -1211,7 +1241,8 @@ def renovar_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = 
         total_deuda=total_deuda,
         deuda_restante=total_deuda,
         interes_porcentaje=prestamo.interes_porcentaje,
-        valor_cartulina=valor_cartulina
+        valor_cartulina=valor_cartulina,
+        frecuencia=prestamo.frecuencia
     )
     db.add(nuevo_prestamo)
     db.commit()
@@ -1592,6 +1623,7 @@ def reporte_cliente(cliente_id: int, db: Session = Depends(get_db)):
             "deuda_restante": prestamo.deuda_restante,
             "pagado": prestamo.pagado,
             "fecha_prestamo": prestamo.fecha_prestamo,
+            "frecuencia": prestamo.frecuencia or "semanal",
             "cuotas": [{
                 "id": c.id,
                 "numero": c.numero_cuota,
