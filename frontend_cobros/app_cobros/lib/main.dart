@@ -1275,47 +1275,49 @@ class _GestionTrabajadoresScreenState extends State<GestionTrabajadoresScreen> {
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Editar Trabajador'),
-        content: SingleChildScrollView(
-          child: Column(
-            children: [
-              TextField(
-                controller: nombreController,
-                decoration: const InputDecoration(labelText: 'Nombre'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: emailController,
-                decoration: const InputDecoration(labelText: 'Email'),
-              ),
-              const SizedBox(height: 10),
-              SwitchListTile(
-                title: const Text('Activo'),
-                value: activo,
-                onChanged: (value) => setState(() => activo = value),
-              ),
-            ],
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Editar Trabajador'),
+          content: SingleChildScrollView(
+            child: Column(
+              children: [
+                TextField(
+                  controller: nombreController,
+                  decoration: const InputDecoration(labelText: 'Nombre'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: emailController,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                ),
+                const SizedBox(height: 10),
+                SwitchListTile(
+                  title: const Text('Activo'),
+                  value: activo,
+                  onChanged: (value) => setDialogState(() => activo = value),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _editarTrabajador(
+                  trabajador['id'],
+                  nombreController.text,
+                  emailController.text,
+                  activo,
+                );
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _editarTrabajador(
-                trabajador['id'],
-                nombreController.text,
-                emailController.text,
-                activo,
-              );
-            },
-            child: const Text('Guardar'),
-          ),
-        ],
       ),
     );
   }
@@ -1640,73 +1642,75 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Editar Cliente'),
-        content: SingleChildScrollView(
-          child: Column(
-            children: [
-              TextField(
-                controller: nombresController,
-                decoration: const InputDecoration(labelText: 'Nombres'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: telefonoController,
-                decoration: const InputDecoration(labelText: 'Teléfono'),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                value: diaCobro,
-                decoration: const InputDecoration(labelText: 'Día de cobro'),
-                items:
-                    [
-                          'lunes',
-                          'martes',
-                          'miércoles',
-                          'jueves',
-                          'viernes',
-                          'sábado',
-                          'domingo',
-                        ]
-                        .map(
-                          (dia) => DropdownMenuItem(
-                            value: dia,
-                            child: Text(
-                              dia[0].toUpperCase() + dia.substring(1),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Editar Cliente'),
+          content: SingleChildScrollView(
+            child: Column(
+              children: [
+                TextField(
+                  controller: nombresController,
+                  decoration: const InputDecoration(labelText: 'Nombres'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: telefonoController,
+                  decoration: const InputDecoration(labelText: 'Teléfono'),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: diaCobro,
+                  decoration: const InputDecoration(labelText: 'Día de cobro'),
+                  items:
+                      [
+                            'lunes',
+                            'martes',
+                            'miércoles',
+                            'jueves',
+                            'viernes',
+                            'sábado',
+                            'domingo',
+                          ]
+                          .map(
+                            (dia) => DropdownMenuItem(
+                              value: dia,
+                              child: Text(
+                                dia[0].toUpperCase() + dia.substring(1),
+                              ),
                             ),
-                          ),
-                        )
-                        .toList(),
-                onChanged: (value) => diaCobro = value ?? 'lunes',
-              ),
-              const SizedBox(height: 10),
-              SwitchListTile(
-                title: const Text('Activo'),
-                value: activo,
-                onChanged: (value) => setState(() => activo = value),
-              ),
-            ],
+                          )
+                          .toList(),
+                  onChanged: (value) => diaCobro = value ?? 'lunes',
+                ),
+                const SizedBox(height: 10),
+                SwitchListTile(
+                  title: const Text('Activo'),
+                  value: activo,
+                  onChanged: (value) => setDialogState(() => activo = value),
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _editarCliente(
+                  cliente['id'],
+                  nombresController.text,
+                  telefonoController.text,
+                  diaCobro,
+                  activo,
+                );
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _editarCliente(
-                cliente['id'],
-                nombresController.text,
-                telefonoController.text,
-                diaCobro,
-                activo,
-              );
-            },
-            child: const Text('Guardar'),
-          ),
-        ],
       ),
     );
   }
@@ -2146,9 +2150,10 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
     }
 
     try {
+      final uid = SessionGlobal.usuarioId;
       final response = await http.get(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=${_cedulaController.text}',
+          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=${_cedulaController.text}&usuario_id=$uid',
         ),
       );
 
@@ -2403,9 +2408,10 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
 
     try {
       // Primero buscar el cliente
+      final uid = SessionGlobal.usuarioId;
       final searchResponse = await http.get(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=${_cedulaController.text}',
+          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=${_cedulaController.text}&usuario_id=$uid',
         ),
       );
 
@@ -2682,14 +2688,14 @@ class _BuscarClienteScreenState extends State<BuscarClienteScreen> {
     if (_busquedaController.text.isEmpty) return;
 
     final busqueda = _busquedaController.text.trim();
+    final uid = SessionGlobal.usuarioId;
     String url;
-    // Si es numérico, buscar por cédula; si no, por nombre
-    if (RegExp(r'^\d+ $').hasMatch(busqueda)) {
+    if (RegExp(r'^\d+$').hasMatch(busqueda)) {
       url =
-          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=$busqueda';
+          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=$busqueda&usuario_id=$uid';
     } else {
       url =
-          'https://proyecto-cobros.onrender.com/api/clientes/buscar?nombre=$busqueda';
+          'https://proyecto-cobros.onrender.com/api/clientes/buscar?nombre=$busqueda&usuario_id=$uid';
     }
 
     try {
@@ -2995,7 +3001,7 @@ class _BuscarClienteScreenState extends State<BuscarClienteScreen> {
   }
 
   int _contarPrestamosActivos(List historial) {
-    return historial.where((p) => !(p['pagada'] ?? false)).length;
+    return historial.where((p) => !(p['pagado'] ?? false)).length;
   }
 }
 

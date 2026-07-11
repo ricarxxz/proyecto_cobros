@@ -1379,7 +1379,7 @@ def crear_cierre_dia(usuario_id: int, fecha: date = None, db: Session = Depends(
         usuario_id=usuario_id,
         fecha_cierre=fecha,
         total_cuotas_pagadas=ingreso.ingreso_cuotas if ingreso else 0.0,
-        total_cartilinas=ingreso.ingreso_cartulinas if ingreso else 0.0,
+        total_cartulinas=ingreso.ingreso_cartulinas if ingreso else 0.0,
         total_gastos=total_gastos,
         saldo_neto=total_ingresos - total_gastos
     )
@@ -1391,7 +1391,7 @@ def crear_cierre_dia(usuario_id: int, fecha: date = None, db: Session = Depends(
         "cierre_id": cierre.id,
         "fecha": fecha,
         "total_cuotas": cierre.total_cuotas_pagadas,
-        "total_cartilinas": cierre.total_cartilinas,
+        "total_cartulinas": cierre.total_cartulinas,
         "total_gastos": cierre.total_gastos,
         "saldo_neto": cierre.saldo_neto
     }
@@ -1415,7 +1415,7 @@ def historial_cierres(usuario_id: int, db: Session = Depends(get_db)):
             "usuario_id": c.usuario_id,
             "fecha_cierre": c.fecha_cierre,
             "total_cuotas_pagadas": c.total_cuotas_pagadas,
-            "total_cartilinas": c.total_cartilinas,
+            "total_cartulinas": c.total_cartulinas,
             "total_gastos": c.total_gastos,
             "saldo_neto": c.saldo_neto,
             "fecha_creacion": c.fecha_creacion,
