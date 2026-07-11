@@ -2616,7 +2616,7 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
 
     try {
       final montoPagado = double.parse(_pagoController.text);
-      final cuotaId = _cuotasPendientes[0]['id'];
+      final cuotaId = int.parse(_cuotasPendientes[0]['id'].toString());
 
       final response = await http.post(
         Uri.parse(
@@ -3154,13 +3154,30 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
       return;
     }
 
+    // Validar que es admin
+    if (SessionGlobal.rol != 'administrador') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Solo administradores pueden hacer cierre del día'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
+      final usuarioId = SessionGlobal.usuarioId;
+      if (usuarioId == null) {
+        throw Exception('Usuario no autenticado');
+      }
+
       final response = await http.post(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/cierre-dia/crear?usuario_id=${SessionGlobal.usuarioId}',
+          'https://proyecto-cobros.onrender.com/api/cierre-dia/crear?usuario_id=$usuarioId',
         ),
+        headers: {'Content-Type': 'application/json'},
       );
 
       if (response.statusCode == 200) {
@@ -3338,10 +3355,16 @@ class _CierreDiaScreenState extends State<CierreDiaScreen> {
     setState(() => _isLoading = true);
 
     try {
+      final usuarioId = SessionGlobal.usuarioId;
+      if (usuarioId == null) {
+        throw Exception('Usuario no autenticado');
+      }
+
       final response = await http.post(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/cierre-dia/crear?usuario_id=${SessionGlobal.usuarioId}',
+          'https://proyecto-cobros.onrender.com/api/cierre-dia/crear?usuario_id=$usuarioId',
         ),
+        headers: {'Content-Type': 'application/json'},
       );
 
       if (response.statusCode == 200) {
@@ -3352,6 +3375,11 @@ class _CierreDiaScreenState extends State<CierreDiaScreen> {
               "Cierre completado\nSaldo Neto: \$${data['saldo_neto']}",
             ),
           ),
+        );
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error['detail'] ?? 'Error al hacer cierre')),
         );
       }
     } catch (e) {
