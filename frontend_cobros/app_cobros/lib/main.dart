@@ -556,14 +556,6 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            ElevatedButton(
-                              onPressed: () => _gestionarCuotaVencida(
-                                alerta['cuota_id'],
-                                'dejar',
-                              ),
-                              child: const Text('Dejar'),
-                            ),
                           ],
                         ),
                         const SizedBox(height: 8),
@@ -3262,6 +3254,45 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
     }
   }
 
+  Future<void> _desactivarCierre() async {
+    setState(() => _isLoading = true);
+    try {
+      final usuarioId = SessionGlobal.usuarioId;
+      if (usuarioId == null) {
+        throw Exception('Usuario no autenticado');
+      }
+
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/cierre-dia/desactivar?usuario_id=$usuarioId',
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        await CierreDiaService.clearClosedAt();
+        await _verificarBloqueo();
+        await _cargarResumen();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cierre desactivado. Los trabajadores pueden operar nuevamente.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error['detail'] ?? 'Error al desactivar cierre')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -3297,6 +3328,10 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
                               'Cartulinas: \$${_resumen!['ingreso_cartulinas']}',
                               style: const TextStyle(fontSize: 16),
                             ),
+                            Text(
+                              'Préstamos del día: \$${_resumen!['prestamos_hoy']}',
+                              style: const TextStyle(fontSize: 16, color: Colors.purple),
+                            ),
                             const Divider(),
                             Text(
                               'Total Ingresos: \$${_resumen!['total_ingresos']}',
@@ -3312,48 +3347,53 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
                     ),
                     const SizedBox(height: 20),
                     if (SessionGlobal.rol == 'administrador') ...[
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _isLoading || _bloqueado
-                                  ? null
-                                  : _mostrarDialogoGasto,
-                              icon: const Icon(Icons.receipt_long),
-                              label: const Text('Agregar gasto'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _isLoading || _bloqueado
-                                  ? null
-                                  : _hacerCierre,
-                              icon: const Icon(Icons.lock_clock),
-                              label: const Text('Hacer cierre'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
+                      if (!_bloqueado) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isLoading ? null : _mostrarDialogoGasto,
+                                icon: const Icon(Icons.receipt_long),
+                                label: const Text('Agregar gasto'),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      if (_bloqueado)
-                        Container(
-                          margin: const EdgeInsets.only(top: 10),
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.orange[100],
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'El cierre está activo hasta las 23:59. No se permiten préstamos ni cobros.',
-                            style: TextStyle(
-                              color: Colors.orange,
-                              fontWeight: FontWeight.bold,
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isLoading ? null : _hacerCierre,
+                                icon: const Icon(Icons.lock_clock),
+                                label: const Text('Hacer cierre'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ),
+                      ] else ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isLoading ? null : _mostrarDialogoGasto,
+                                icon: const Icon(Icons.receipt_long),
+                                label: const Text('Agregar gasto'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isLoading ? null : _desactivarCierre,
+                                icon: const Icon(Icons.lock_open),
+                                label: const Text('Desactivar cierre'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 20),
                     ],
                     const Text(
