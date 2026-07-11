@@ -8,10 +8,10 @@ import 'cierre_dia_service.dart';
 
 String formatearDinero(dynamic valor) {
   if (valor == null) return '\$0';
-  double num = (valor is num) ? valor.toDouble() : double.tryParse(valor.toString()) ?? 0;
-  bool negativo = num < 0;
-  if (negativo) num = num.abs();
-  List<String> parts = num.toStringAsFixed(0).split('');
+  double cantidad = (valor is num) ? valor.toDouble() : double.tryParse(valor.toString()) ?? 0;
+  bool negativo = cantidad < 0;
+  if (negativo) cantidad = cantidad.abs();
+  List<String> parts = cantidad.toStringAsFixed(0).split('');
   StringBuffer buf = StringBuffer();
   int cnt = 0;
   for (int i = parts.length - 1; i >= 0; i--) {
@@ -2725,13 +2725,46 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
   }
 
   Future<void> _registrarPago() async {
+    if (await verificarBloqueo(context)) return;
+
+    if (_pagoController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Ingrese el valor a cobrar")),
+      );
+      return;
+    }
+
+    if (_cuotasPendientes.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("No hay cuotas pendientes")));
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final montoPagado = double.parse(_pagoController.text);
+      final cuotaId = int.parse(_cuotasPendientes[0]['id'].toString());
+
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/cobros/registrar-pago?usuario_id=${SessionGlobal.usuarioId}',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'cuota_id': cuotaId, 'cantidad_pagada': montoPagado}),
+      );
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
             content: Text("¡Pago registrado exitosamente!"),
             backgroundColor: Colors.green,
           ),
         );
 
         // Limpiar campos
-        _cedulaController.clear();
+        _busquedaController.clear();
         _pagoController.clear();
         setState(() {
           _clienteInfo = null;
