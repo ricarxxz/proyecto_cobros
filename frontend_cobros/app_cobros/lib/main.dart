@@ -3,7 +3,24 @@ import 'colors.dart';
 import 'app_styles.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:async';
 import 'cierre_dia_service.dart';
+
+String formatearDinero(dynamic valor) {
+  if (valor == null) return '\$0';
+  double num = (valor is num) ? valor.toDouble() : double.tryParse(valor.toString()) ?? 0;
+  bool negativo = num < 0;
+  if (negativo) num = num.abs();
+  List<String> parts = num.toStringAsFixed(0).split('');
+  StringBuffer buf = StringBuffer();
+  int cnt = 0;
+  for (int i = parts.length - 1; i >= 0; i--) {
+    if (cnt > 0 && cnt % 3 == 0) buf.write('.');
+    buf.write(parts[i]);
+    cnt++;
+  }
+  return '${negativo ? '-' : ''}\$${buf.toString().split('').reversed.join()}';
+}
 
 void main() => runApp(
   MaterialApp(
@@ -540,7 +557,7 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Vencida hace ${alerta['dias_atrasados']} días • Pendiente: \$${alerta['pendiente']}',
+                          'Vencida hace ${alerta['dias_atrasados']} días • Pendiente: ${formatearDinero(alerta['pendiente'])}',
                         ),
                         const SizedBox(height: 8),
                         Row(
@@ -1528,7 +1545,7 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Deuda total: \$${data['resumen']['deuda_total']}'),
+                Text('Deuda total: ${formatearDinero(data['resumen']['deuda_total'])}'),
                 const SizedBox(height: 10),
                 ...historial.expand((prestamo) {
                   final cuotas = prestamo['cuotas'] as List;
@@ -1548,8 +1565,8 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Cuota #${cuota['numero']}'),
-                                Text('Valor: \$${cuota['valor']}'),
+                                 Text('Cuota #${cuota['numero']}'),
+                                Text('Valor: ${formatearDinero(cuota['valor'])}'),
                                 Text('Vence: ${cuota['vencimiento']}'),
                                 if (atrasada)
                                   Padding(
@@ -1948,7 +1965,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              "Cliente y préstamo registrados. Monto: \$${_montoController.text}",
+              "Cliente y préstamo registrados. Monto: ${formatearDinero(_montoController.text)}",
             ),
           ),
         );
@@ -2261,7 +2278,7 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              "Préstamo creado\nTotal a cobrar: \$${data['total_deuda']}\nCartulina: \$${data['valor_cartulina']}",
+              "Préstamo creado\nTotal a cobrar: ${formatearDinero(data['total_deuda'])}\nCartulina: ${formatearDinero(data['valor_cartulina'])}",
             ),
           ),
         );
@@ -2416,18 +2433,32 @@ class RegistroCobrosScreen extends StatefulWidget {
 }
 
 class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
-  final _cedulaController = TextEditingController();
+  final _busquedaController = TextEditingController();
   final _pagoController = TextEditingController();
   Map<String, dynamic>? _clienteInfo;
   List<dynamic> _cuotasPendientes = [];
+  List<dynamic> _sugerencias = [];
   int? _clienteId;
+  String? _nombreCliente;
   bool _isLoading = false;
+  bool _buscando = false;
   bool _bloqueado = false;
+  Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
     _verificarBloqueo();
+    _busquedaController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _busquedaController.removeListener(_onSearchChanged);
+    _busquedaController.dispose();
+    _pagoController.dispose();
+    _debounce?.cancel();
+    super.dispose();
   }
 
   Future<void> _verificarBloqueo() async {
@@ -2437,78 +2468,93 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
     }
   }
 
-  Future<void> _cargarCuotas() async {
-    if (_cedulaController.text.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Ingrese una cédula")));
+  void _onSearchChanged() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      _buscarSugerencias();
+    });
+  }
+
+  Future<void> _buscarSugerencias() async {
+    final texto = _busquedaController.text.trim();
+    if (texto.isEmpty) {
+      if (mounted) setState(() => _sugerencias = []);
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() => _buscando = true);
+    try {
+      final uid = SessionGlobal.usuarioId;
+      final esNumero = RegExp(r'^\d+$').hasMatch(texto);
+      final url = esNumero
+          ? 'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=$texto&usuario_id=$uid'
+          : 'https://proyecto-cobros.onrender.com/api/clientes/buscar?nombre=$texto&usuario_id=$uid';
+
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200 && mounted) {
+        setState(() => _sugerencias = jsonDecode(response.body) as List);
+      } else if (mounted) {
+        setState(() => _sugerencias = []);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _sugerencias = []);
+    } finally {
+      if (mounted) setState(() => _buscando = false);
+    }
+  }
+
+  Future<void> _seleccionarCliente(Map<String, dynamic> cliente) async {
+    setState(() {
+      _clienteId = cliente['id'];
+      _nombreCliente = cliente['nombres'];
+      _busquedaController.text = cliente['nombres'] ?? '';
+      _sugerencias = [];
+      _isLoading = true;
+    });
 
     try {
-      // Primero buscar el cliente
-      final uid = SessionGlobal.usuarioId;
-      final searchResponse = await http.get(
+      final response = await http.get(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=${_cedulaController.text}&usuario_id=$uid',
+          'https://proyecto-cobros.onrender.com/api/reportes/cliente/${cliente['id']}',
         ),
       );
 
-      if (searchResponse.statusCode == 200) {
-        final clients = jsonDecode(searchResponse.body) as List;
-        if (clients.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Cliente no encontrado")),
-          );
-          setState(() => _isLoading = false);
-          return;
-        }
+      if (response.statusCode == 200 && mounted) {
+        final reportData = jsonDecode(response.body);
+        final historial = reportData['historial_prestamos'] as List;
 
-        _clienteId = clients[0]['id'];
-        final clienteName = clients[0]['nombres'];
-
-        // Luego obtener el reporte completo
-        final reportResponse = await http.get(
-          Uri.parse(
-            'https://proyecto-cobros.onrender.com/api/reportes/cliente/$_clienteId',
-          ),
-        );
-
-        if (reportResponse.statusCode == 200) {
-          final reportData = jsonDecode(reportResponse.body);
-          final historial = reportData['historial_prestamos'] as List;
-
-          // Extraer todas las cuotas pendientes
-          List<dynamic> cuotas = [];
-          for (var prestamo in historial) {
-            for (var cuota in prestamo['cuotas']) {
-              if (!(cuota['pagada'] ?? false)) {
-                cuotas.add({...cuota, 'prestamo_id': prestamo['prestamo_id']});
-              }
+        List<dynamic> cuotas = [];
+        for (var prestamo in historial) {
+          for (var cuota in prestamo['cuotas']) {
+            if (!(cuota['pagada'] ?? false)) {
+              cuotas.add({...cuota, 'prestamo_id': prestamo['prestamo_id']});
             }
           }
+        }
 
-          // Ordenar por fecha de vencimiento
-          cuotas.sort(
-            (a, b) => DateTime.parse(
-              a['vencimiento'].toString(),
-            ).compareTo(DateTime.parse(b['vencimiento'].toString())),
-          );
+        cuotas.sort(
+          (a, b) => DateTime.parse(
+            a['vencimiento'].toString(),
+          ).compareTo(DateTime.parse(b['vencimiento'].toString())),
+        );
 
+        if (mounted) {
           setState(() {
             _clienteInfo = reportData;
             _cuotasPendientes = cuotas;
+            _isLoading = false;
           });
         }
+      } else if (mounted) {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error: $e")));
-    } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e")),
+        );
+      }
     }
   }
 
@@ -2520,40 +2566,76 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
         padding: const EdgeInsets.all(20),
         child: SingleChildScrollView(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(
-                controller: _cedulaController,
-                keyboardType: TextInputType.number,
+                controller: _busquedaController,
                 decoration: InputDecoration(
-                  labelText: "Cédula del Cliente",
+                  labelText: "Buscar cliente (nombre o cédula)",
                   border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.badge),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.search),
-                    onPressed: _cargarCuotas,
-                  ),
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _buscando
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : null,
                 ),
               ),
-              const SizedBox(height: 20),
-              if (_clienteInfo != null) ...[
+              if (_sugerencias.isNotEmpty)
                 Container(
-                  padding: const EdgeInsets.all(15),
+                  constraints: const BoxConstraints(maxHeight: 200),
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.blue),
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(4),
+                    color: Colors.white,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _sugerencias.length,
+                    itemBuilder: (context, i) {
+                      final c = _sugerencias[i];
+                      return ListTile(
+                        dense: true,
+                        title: Text(c['nombres'] ?? ''),
+                        subtitle: Text('Cédula: ${c['cedula']} | Tel: ${c['telefono']}'),
+                        onTap: () => _seleccionarCliente(c),
+                      );
+                    },
+                  ),
+                ),
+              if (_nombreCliente != null && _clienteInfo != null) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
                     borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green.shade200),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Deuda Total: \$${_clienteInfo!['resumen']['deuda_total']}',
+                        'Cliente: $_nombreCliente',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Deuda Total: ${formatearDinero(_clienteInfo!['resumen']['deuda_total'])}',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: Colors.red,
                         ),
                       ),
-                      const SizedBox(height: 10),
                       Text(
                         'Cuotas Pendientes: ${_cuotasPendientes.length}',
                         style: const TextStyle(fontSize: 14),
@@ -2561,13 +2643,13 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
                 if (_cuotasPendientes.isNotEmpty) ...[
+                  const SizedBox(height: 16),
                   const Text(
                     'Próxima Cuota a Vencer:',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -2583,7 +2665,7 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         Text(
-                          'Valor: \$${_cuotasPendientes[0]['valor']}',
+                          'Valor: ${formatearDinero(_cuotasPendientes[0]['valor'])}',
                           style: const TextStyle(fontSize: 14),
                         ),
                         Text(
@@ -2643,39 +2725,6 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
   }
 
   Future<void> _registrarPago() async {
-    if (await verificarBloqueo(context)) return;
-
-    if (_pagoController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Ingrese el valor a cobrar")),
-      );
-      return;
-    }
-
-    if (_cuotasPendientes.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("No hay cuotas pendientes")));
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      final montoPagado = double.parse(_pagoController.text);
-      final cuotaId = int.parse(_cuotasPendientes[0]['id'].toString());
-
-      final response = await http.post(
-        Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/cobros/registrar-pago?usuario_id=${SessionGlobal.usuarioId}',
-        ),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'cuota_id': cuotaId, 'cantidad_pagada': montoPagado}),
-      );
-
-      if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
             content: Text("¡Pago registrado exitosamente!"),
             backgroundColor: Colors.green,
           ),
@@ -2831,7 +2880,7 @@ class _BuscarClienteScreenState extends State<BuscarClienteScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Deuda Total: \$${resumen['deuda_total']}',
+                    'Deuda Total: ${formatearDinero(resumen['deuda_total'])}',
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -2868,11 +2917,11 @@ class _BuscarClienteScreenState extends State<BuscarClienteScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Préstamo \$${prestamo['monto_prestado']}',
+                            'Préstamo ${formatearDinero(prestamo['monto_prestado'])}',
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           Text(
-                            'Deuda: \$${prestamo['deuda_restante']} | Cuotas: $cPendientes pendientes',
+                            'Deuda: ${formatearDinero(prestamo['deuda_restante'])} | Cuotas: $cPendientes pendientes',
                             style: const TextStyle(fontSize: 12),
                           ),
                           const SizedBox(height: 6),
@@ -2911,7 +2960,7 @@ class _BuscarClienteScreenState extends State<BuscarClienteScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Cuotas del préstamo \$${prestamo['monto_prestado']}'),
+        title: Text('Cuotas del préstamo ${formatearDinero(prestamo['monto_prestado'])}'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2924,7 +2973,7 @@ class _BuscarClienteScreenState extends State<BuscarClienteScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Cuota #${cuota['numero']} - Valor: \$${cuota['valor']}',
+                        'Cuota #${cuota['numero']} - Valor: ${formatearDinero(cuota['valor'])}',
                       ),
                       Text('Vence: ${cuota['vencimiento']}'),
                       Text('Pagada: ${pagada ? 'Sí' : 'No'}'),
@@ -3234,7 +3283,7 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Cierre completado\nSaldo Neto: \$${data['saldo_neto']}',
+              'Cierre completado\nSaldo Neto: ${formatearDinero(data['saldo_neto'])}',
             ),
             backgroundColor: Colors.green,
           ),
@@ -3321,20 +3370,20 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
                             ),
                             const SizedBox(height: 15),
                             Text(
-                              'Cuotas: \$${_resumen!['ingreso_cuotas']}',
+                              'Cuotas: ${formatearDinero(_resumen!['ingreso_cuotas'])}',
                               style: const TextStyle(fontSize: 16),
                             ),
                             Text(
-                              'Cartulinas: \$${_resumen!['ingreso_cartulinas']}',
+                              'Cartulinas: ${formatearDinero(_resumen!['ingreso_cartulinas'])}',
                               style: const TextStyle(fontSize: 16),
                             ),
                             Text(
-                              'Préstamos del día: \$${_resumen!['prestamos_hoy']}',
+                              'Préstamos del día: ${formatearDinero(_resumen!['prestamos_hoy'])}',
                               style: const TextStyle(fontSize: 16, color: Colors.purple),
                             ),
                             const Divider(),
                             Text(
-                              'Total Ingresos: \$${_resumen!['total_ingresos']}',
+                              'Total Ingresos: ${formatearDinero(_resumen!['total_ingresos'])}',
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -3404,11 +3453,11 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
                       ),
                     ),
                     ..._resumen!['gastos'].map<Widget>((gasto) {
-                      return Text('${gasto['concepto']}: \$${gasto['valor']}');
+                      return Text('${gasto['concepto']}: ${formatearDinero(gasto['valor'])}');
                     }).toList(),
                     const Divider(),
                     Text(
-                      'Total Gastos: \$${_resumen!['total_gastos']}',
+                      'Total Gastos: ${formatearDinero(_resumen!['total_gastos'])}',
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -3420,7 +3469,7 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
                       padding: const EdgeInsets.all(15),
                       color: Colors.blue[100],
                       child: Text(
-                        'Saldo Neto: \$${_resumen!['saldo_neto']}',
+                        'Saldo Neto: ${formatearDinero(_resumen!['saldo_neto'])}',
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -3467,7 +3516,7 @@ class _CierreDiaScreenState extends State<CierreDiaScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              "Cierre completado\nSaldo Neto: \$${data['saldo_neto']}",
+              "Cierre completado\nSaldo Neto: ${formatearDinero(data['saldo_neto'])}",
             ),
           ),
         );

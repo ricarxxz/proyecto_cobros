@@ -1405,14 +1405,26 @@ def resumen_dia(usuario_id: int, fecha: date = None, db: Session = Depends(get_d
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     es_admin = usuario and usuario.rol == RolUsuario.ADMINISTRADOR
     
+    # IDs del equipo (admin + sus trabajadores, o solo el trabajador)
+    if es_admin:
+        ids_equipo = [usuario_id] + [
+            t[0] for t in db.query(Usuario.id).filter(
+                Usuario.rol == RolUsuario.TRABAJADOR,
+                Usuario.creado_por == usuario_id
+            ).all()
+        ]
+    else:
+        ids_equipo = [usuario_id]
+    
     if es_admin:
         ingreso = db.query(
             func.coalesce(func.sum(IngresoDia.ingreso_cuotas), 0),
             func.coalesce(func.sum(IngresoDia.ingreso_cartulinas), 0),
-        ).filter(IngresoDia.fecha == fecha).first()
+        ).filter(IngresoDia.fecha == fecha, IngresoDia.usuario_id.in_(ids_equipo)).first()
         
         gastos = db.query(GastoDia).filter(
-            func.date(GastoDia.fecha_registro) == fecha
+            func.date(GastoDia.fecha_registro) == fecha,
+            GastoDia.usuario_id.in_(ids_equipo)
         ).all()
         
         ingreso_cuotas = float(ingreso[0] or 0)
@@ -1437,7 +1449,10 @@ def resumen_dia(usuario_id: int, fecha: date = None, db: Session = Depends(get_d
     prestamos_hoy = db.query(
         func.coalesce(func.sum(Prestamo.monto_prestado), 0)
     ).filter(
-        func.date(Prestamo.fecha_prestamo) == fecha
+        func.date(Prestamo.fecha_prestamo) == fecha,
+        Prestamo.cliente_id.in_(
+            db.query(Cliente.id).filter(Cliente.usuario_id.in_(ids_equipo))
+        )
     ).scalar() or 0
     
     return {
@@ -1463,14 +1478,21 @@ def crear_cierre_dia(usuario_id: int, fecha: date = None, db: Session = Depends(
     if usuario.rol != RolUsuario.ADMINISTRADOR:
         raise HTTPException(status_code=403, detail="Solo administradores pueden hacer cierre")
     
-    # Admin acumula ingresos de todos los usuarios
+    # Admin acumula ingresos de sus trabajadores
+    ids_equipo = [usuario_id] + [
+        t[0] for t in db.query(Usuario.id).filter(
+            Usuario.rol == RolUsuario.TRABAJADOR,
+            Usuario.creado_por == usuario_id
+        ).all()
+    ]
     ingreso = db.query(
         func.coalesce(func.sum(IngresoDia.ingreso_cuotas), 0),
         func.coalesce(func.sum(IngresoDia.ingreso_cartulinas), 0),
-    ).filter(IngresoDia.fecha == fecha).first()
+    ).filter(IngresoDia.fecha == fecha, IngresoDia.usuario_id.in_(ids_equipo)).first()
     
     gastos = db.query(GastoDia).filter(
-        func.date(GastoDia.fecha_registro) == fecha
+        func.date(GastoDia.fecha_registro) == fecha,
+        GastoDia.usuario_id.in_(ids_equipo)
     ).all()
     
     total_gastos = sum(g.valor for g in gastos)
