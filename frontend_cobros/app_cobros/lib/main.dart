@@ -737,6 +737,34 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                   );
                 },
               ),
+              ListTile(
+                leading: const Icon(Icons.attach_money, color: Colors.blue),
+                title: const Text('Registrar Cobro'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  if (await verificarBloqueo(context)) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const RegistroCobrosScreen(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.add_card, color: Colors.orange),
+                title: const Text('Nuevo Préstamo'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  if (await verificarBloqueo(context)) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NuevoPrestamoScreen(),
+                    ),
+                  );
+                },
+              ),
               const Divider(),
             ],
             // MENÚ PARA TRABAJADOR
@@ -1537,6 +1565,24 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
 
       if (!mounted) return;
 
+      // Collect all pagos from all prestamos
+      List<Map<String, dynamic>> todosLosPagos = [];
+      for (var prestamo in historial) {
+        final pagos = prestamo['pagos'] as List? ?? [];
+        for (var p in pagos) {
+          todosLosPagos.add({
+            ...p,
+            'prestamo_id': prestamo['prestamo_id'],
+            'monto_prestado': prestamo['monto_prestado'],
+          });
+        }
+      }
+      todosLosPagos.sort(
+        (a, b) => (b['fecha_pago'] ?? '').toString().compareTo(
+          (a['fecha_pago'] ?? '').toString(),
+        ),
+      );
+
       await showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -1546,103 +1592,163 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Deuda total: ${formatearDinero(data['resumen']['deuda_total'])}'),
-                const SizedBox(height: 10),
+                Text('Préstamos totales: ${data['resumen']['total_prestamos']}'),
+                Text('Préstamos completos: ${data['resumen']['prestamos_completos']}'),
+                Text('Préstamos atrasados: ${data['resumen']['prestamos_atrasados']}'),
+                const Divider(height: 20),
+                const Text(
+                  'Historial de Pagos',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+                if (todosLosPagos.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(8.0),
+                    child: Text('No hay pagos registrados'),
+                  )
+                else
+                  ...todosLosPagos.map((p) => Card(
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Pago #${p['id']}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          Text('Monto: ${formatearDinero(p['cantidad_pagada'])}'),
+                          Text('Fecha: ${p['fecha_pago']}'),
+                          Text('Cuota #${p['cuota_id']}'),
+                        ],
+                      ),
+                    ),
+                  )),
+                const Divider(height: 20),
+                const Text(
+                  'Cuotas',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
                 ...historial.expand((prestamo) {
                   final cuotas = prestamo['cuotas'] as List;
-                  return cuotas
-                      .where((cuota) => !(cuota['pagada'] ?? false))
-                      .map<Widget>((cuota) {
-                        final vencimiento = DateTime.tryParse(
-                          cuota['vencimiento'].toString(),
-                        );
-                        final atrasada =
-                            vencimiento != null &&
-                            !vencimiento.isAfter(DateTime.now());
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                  return cuotas.map<Widget>((cuota) {
+                    final pagada = cuota['pagada'] ?? false;
+                    final vencimiento = DateTime.tryParse(
+                      cuota['vencimiento'].toString(),
+                    );
+                    final atrasada =
+                        vencimiento != null &&
+                        !vencimiento.isAfter(DateTime.now()) &&
+                        !pagada;
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                 Text('Cuota #${cuota['numero']}'),
-                                Text('Valor: ${formatearDinero(cuota['valor'])}'),
-                                Text('Vence: ${cuota['vencimiento']}'),
-                                if (atrasada)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 8.0),
-                                    child: ElevatedButton.icon(
-                                      onPressed: () async {
-                                        final montoController =
-                                            TextEditingController();
-                                        final aplicar = await showDialog<bool>(
-                                          context: context,
-                                          builder: (context) => AlertDialog(
-                                            title: const Text(
-                                              'Aumentar interés de mora',
-                                            ),
-                                            content: TextField(
-                                              controller: montoController,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                              decoration: const InputDecoration(
-                                                labelText: 'Monto de interés',
-                                              ),
-                                            ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () => Navigator.pop(
-                                                  context,
-                                                  false,
-                                                ),
-                                                child: const Text('Cancelar'),
-                                              ),
-                                              ElevatedButton(
-                                                onPressed: () => Navigator.pop(
-                                                  context,
-                                                  true,
-                                                ),
-                                                child: const Text('Aplicar'),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-
-                                        if (aplicar == true) {
-                                          final monto = double.tryParse(
-                                            montoController.text.trim(),
-                                          );
-                                          if (monto == null || monto <= 0) {
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              const SnackBar(
-                                                content: Text(
-                                                  'Ingrese un monto válido',
-                                                ),
-                                              ),
-                                            );
-                                            return;
-                                          }
-                                          await _aplicarInteresCuota(
-                                            cuota['id'],
-                                            monto,
-                                          );
-                                          Navigator.pop(context);
-                                        }
-                                      },
-                                      icon: const Icon(
-                                        Icons.warning_amber_rounded,
-                                      ),
-                                      label: const Text('Aumentar interés'),
-                                    ),
+                                Text(
+                                  'Cuota #${cuota['numero']}',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    decoration: pagada
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                    color: pagada ? Colors.grey : null,
                                   ),
+                                ),
+                                if (pagada)
+                                  const Icon(Icons.check_circle,
+                                      color: Colors.green, size: 20)
+                                else if (atrasada)
+                                  const Icon(Icons.warning,
+                                      color: Colors.red, size: 20),
                               ],
                             ),
-                          ),
-                        );
-                      })
-                      .toList();
+                            Text('Valor: ${formatearDinero(cuota['valor'])}'),
+                            Text('Vence: ${cuota['vencimiento']}'),
+                            Text(
+                              pagada
+                                  ? 'Pagado: ${formatearDinero(cuota['valor_pagado'])}'
+                                  : 'Pendiente: ${formatearDinero(cuota['pendiente'])}',
+                            ),
+                            if (atrasada)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: ElevatedButton.icon(
+                                  onPressed: () async {
+                                    final montoController =
+                                        TextEditingController();
+                                    final aplicar = await showDialog<bool>(
+                                      context: context,
+                                      builder: (context) => AlertDialog(
+                                        title: const Text(
+                                          'Aumentar interés de mora',
+                                        ),
+                                        content: TextField(
+                                          controller: montoController,
+                                          keyboardType:
+                                              TextInputType.number,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Monto de interés',
+                                          ),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(
+                                              context,
+                                              false,
+                                            ),
+                                            child: const Text('Cancelar'),
+                                          ),
+                                          ElevatedButton(
+                                            onPressed: () => Navigator.pop(
+                                              context,
+                                              true,
+                                            ),
+                                            child: const Text('Aplicar'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+
+                                    if (aplicar == true) {
+                                      final monto = double.tryParse(
+                                        montoController.text.trim(),
+                                      );
+                                      if (monto == null || monto <= 0) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Ingrese un monto válido',
+                                            ),
+                                          ),
+                                        );
+                                        return;
+                                      }
+                                      await _aplicarInteresCuota(
+                                        cuota['id'],
+                                        monto,
+                                      );
+                                      Navigator.pop(context);
+                                    }
+                                  },
+                                  icon: const Icon(
+                                    Icons.warning_amber_rounded,
+                                  ),
+                                  label: const Text('Aumentar interés'),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList();
                 }),
               ],
             ),
@@ -2173,68 +2279,80 @@ class NuevoPrestamoScreen extends StatefulWidget {
 }
 
 class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
-  final _cedulaController = TextEditingController();
+  final _busquedaController = TextEditingController();
   final _montoController = TextEditingController();
   final _cuotasController = TextEditingController();
   final _interesController = TextEditingController(text: '20.0');
+  List<dynamic> _sugerencias = [];
   String _frecuencia = "semanal";
   double _interes = 20.0;
   int? _clienteId;
   String? _nombreCliente;
   bool _isLoading = false;
+  bool _buscando = false;
   bool _bloqueado = false;
+  Timer? _debounce;
 
   @override
   void initState() {
     super.initState();
     _verificarBloqueo();
+    _busquedaController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
-    _cedulaController.dispose();
+    _busquedaController.removeListener(_onSearchChanged);
+    _busquedaController.dispose();
     _montoController.dispose();
     _cuotasController.dispose();
     _interesController.dispose();
+    _debounce?.cancel();
     super.dispose();
   }
 
-  Future<void> _buscarCliente() async {
-    if (_cedulaController.text.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Ingrese una cédula")));
+  void _onSearchChanged() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      _buscarSugerencias();
+    });
+  }
+
+  Future<void> _buscarSugerencias() async {
+    final texto = _busquedaController.text.trim();
+    if (texto.isEmpty) {
+      if (mounted) setState(() => _sugerencias = []);
       return;
     }
 
+    setState(() => _buscando = true);
     try {
       final uid = SessionGlobal.usuarioId;
-      final response = await http.get(
-        Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=${_cedulaController.text}&usuario_id=$uid',
-        ),
-      );
+      final esNumero = RegExp(r'^\d+$').hasMatch(texto);
+      final url = esNumero
+          ? 'https://proyecto-cobros.onrender.com/api/clientes/buscar?cedula=$texto&usuario_id=$uid'
+          : 'https://proyecto-cobros.onrender.com/api/clientes/buscar?nombre=$texto&usuario_id=$uid';
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _clienteId = data[0]['id'];
-          _nombreCliente = data[0]['nombres'];
-        });
-      } else if (response.statusCode == 404) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("No existe un cliente con esa cédula.")),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: ${response.statusCode}")),
-        );
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200 && mounted) {
+        setState(() => _sugerencias = jsonDecode(response.body) as List);
+      } else if (mounted) {
+        setState(() => _sugerencias = []);
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) setState(() => _sugerencias = []);
+    } finally {
+      if (mounted) setState(() => _buscando = false);
     }
+  }
+
+  void _seleccionarCliente(Map<String, dynamic> cliente) {
+    setState(() {
+      _clienteId = cliente['id'];
+      _nombreCliente = cliente['nombres'];
+      _busquedaController.text = cliente['nombres'] ?? '';
+      _sugerencias = [];
+    });
   }
 
   Future<void> _verificarBloqueo() async {
@@ -2282,10 +2400,13 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
             ),
           ),
         );
-        _cedulaController.clear();
+        _busquedaController.clear();
         _montoController.clear();
         _cuotasController.clear();
-        setState(() => _clienteId = null);
+        setState(() {
+          _clienteId = null;
+          _nombreCliente = null;
+        });
       } else {
         final error = jsonDecode(response.body);
         ScaffoldMessenger.of(
@@ -2311,18 +2432,45 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
           child: Column(
             children: [
               TextField(
-                controller: _cedulaController,
-                keyboardType: TextInputType.number,
+                controller: _busquedaController,
                 decoration: InputDecoration(
-                  labelText: "Cédula del Cliente",
+                  labelText: "Buscar cliente (nombre o cédula)",
                   border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.badge),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.search),
-                    onPressed: _buscarCliente,
-                  ),
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _buscando
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : null,
                 ),
               ),
+              if (_sugerencias.isNotEmpty)
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(4),
+                    color: Colors.white,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _sugerencias.length,
+                    itemBuilder: (context, i) {
+                      final c = _sugerencias[i];
+                      return ListTile(
+                        dense: true,
+                        title: Text(c['nombres'] ?? ''),
+                        subtitle: Text('Cédula: ${c['cedula']} | Tel: ${c['telefono']}'),
+                        onTap: () => _seleccionarCliente(c),
+                      );
+                    },
+                  ),
+                ),
               if (_nombreCliente != null) ...[
                 const SizedBox(height: 10),
                 Container(
@@ -2756,12 +2904,54 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
       );
 
       if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("¡Pago registrado exitosamente!"),
-            backgroundColor: Colors.green,
-          ),
-        );
+        final result = jsonDecode(response.body);
+        final montoCuota = _cuotasPendientes[0]['valor'];
+        final cuotaPagada = result['cuota_pagada'] ?? false;
+        final deudaRestante = result['deuda_restante'] ?? 0;
+
+        if (mounted) {
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Pago Registrado'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Cliente: $_nombreCliente'),
+                  const SizedBox(height: 8),
+                  Text('Monto pagado: ${formatearDinero(montoPagado)}'),
+                  Text('Valor cuota: ${formatearDinero(montoCuota)}'),
+                  const SizedBox(height: 8),
+                  Text(
+                    cuotaPagada
+                        ? 'Cuota #${_cuotasPendientes[0]['numero']} pagada completamente'
+                        : 'Pago parcial registrado',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: cuotaPagada ? Colors.green : Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Deuda restante total: ${formatearDinero(deudaRestante)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.red,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Aceptar'),
+                ),
+              ],
+            ),
+          );
+        }
 
         // Limpiar campos
         _busquedaController.clear();

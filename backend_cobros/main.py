@@ -1584,6 +1584,7 @@ def reporte_cliente(cliente_id: int, db: Session = Depends(get_db)):
     historial = []
     for prestamo in prestamos:
         cuotas = db.query(Cuota).filter(Cuota.prestamo_id == prestamo.id).all()
+        pagos = db.query(PagoCuota).filter(PagoCuota.prestamo_id == prestamo.id).order_by(PagoCuota.fecha_pago).all()
         historial.append({
             "prestamo_id": prestamo.id,
             "monto_prestado": prestamo.monto_prestado,
@@ -1600,7 +1601,13 @@ def reporte_cliente(cliente_id: int, db: Session = Depends(get_db)):
                 "pendiente": c.valor_pendiente,
                 "atrasada": c.atrasada,
                 "vencimiento": c.fecha_vencimiento
-            } for c in cuotas]
+            } for c in cuotas],
+            "pagos": [{
+                "id": p.id,
+                "cuota_id": p.cuota_id,
+                "cantidad_pagada": p.cantidad_pagada,
+                "fecha_pago": p.fecha_pago
+            } for p in pagos]
         })
     
     return {
