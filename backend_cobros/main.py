@@ -49,7 +49,7 @@ class Usuario(Base):
     nombre = Column(String, index=True)
     email = Column(String, unique=True, index=True)
     password_hash = Column(String)
-    rol = Column(Enum(RolUsuario, values_callable=lambda x: [e.value for e in x]), default=RolUsuario.TRABAJADOR)
+    rol = Column(Enum(RolUsuario, native_enum=False, create_constraint=False), default=RolUsuario.TRABAJADOR)
     activo = Column(Boolean, default=True)
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     creado_por = Column(Integer, nullable=True)  # Admin que registró este usuario (solo para trabajadores)
@@ -217,15 +217,16 @@ try:
 except Exception:
     pass
 
-# Migración: convertir roles existentes de nombres a valores (ADMINISTRADOR → administrador)
+# Migración: cambiar columna rol de enum nativo a VARCHAR y normalizar valores
 try:
     with engine.connect() as conn:
-        conn.execute(text("UPDATE usuarios SET rol = 'administrador' WHERE rol = 'ADMINISTRADOR'"))
-        conn.execute(text("UPDATE usuarios SET rol = 'trabajador' WHERE rol = 'TRABAJADOR'"))
-        conn.execute(text("UPDATE usuarios SET rol = 'desarrollador' WHERE rol = 'DESARROLLADOR'"))
+        conn.execute(text("ALTER TABLE usuarios ALTER COLUMN rol TYPE VARCHAR"))
+        conn.execute(text("UPDATE usuarios SET rol = 'administrador' WHERE LOWER(rol) = 'administrador'"))
+        conn.execute(text("UPDATE usuarios SET rol = 'trabajador' WHERE LOWER(rol) = 'trabajador'"))
+        conn.execute(text("UPDATE usuarios SET rol = 'desarrollador' WHERE LOWER(rol) = 'desarrollador'"))
         conn.commit()
-except Exception:
-    pass
+except Exception as e:
+    print(f"Migración rol VARCHAR (ignorada si ya corrió): {e}")
 
 # ============= INICIALIZAR FastAPI =============
 
