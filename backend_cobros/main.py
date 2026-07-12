@@ -1384,6 +1384,18 @@ def registrar_pago(pago: PagoCuotaRegistro, usuario_id: int, db: Session = Depen
         prestamo.pagado = True
         prestamo.fecha_finalizacion = datetime.utcnow()
     
+    # Redistribuir valor de las cuotas restantes
+    cuotas_restantes = db.query(Cuota).filter(
+        Cuota.prestamo_id == prestamo.id,
+        Cuota.pagada == False
+    ).order_by(Cuota.numero_cuota).all()
+    
+    if cuotas_restantes and prestamo.deuda_restante > 0:
+        nuevo_valor_cuota = prestamo.deuda_restante / len(cuotas_restantes)
+        for cr in cuotas_restantes:
+            cr.valor_cuota = round(nuevo_valor_cuota, 2)
+            cr.valor_pendiente = max(0, round(nuevo_valor_cuota - cr.valor_pagado, 2))
+    
     # Registrar ingreso del día
     ingreso = db.query(IngresoDia).filter(
         IngresoDia.usuario_id == usuario_id,
