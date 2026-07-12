@@ -220,13 +220,13 @@ except Exception:
 # Migración: cambiar columna rol de enum nativo a VARCHAR y normalizar valores
 try:
     with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE usuarios ALTER COLUMN rol TYPE VARCHAR"))
+        conn.execute(text("ALTER TABLE usuarios ALTER COLUMN rol TYPE VARCHAR USING rol::text"))
         conn.execute(text("UPDATE usuarios SET rol = 'administrador' WHERE LOWER(rol) = 'administrador'"))
         conn.execute(text("UPDATE usuarios SET rol = 'trabajador' WHERE LOWER(rol) = 'trabajador'"))
         conn.execute(text("UPDATE usuarios SET rol = 'desarrollador' WHERE LOWER(rol) = 'desarrollador'"))
         conn.commit()
 except Exception as e:
-    print(f"Migración rol VARCHAR (ignorada si ya corrió): {e}")
+    print(f"Migración rol VARCHAR: {e}")
 
 # ============= INICIALIZAR FastAPI =============
 
