@@ -1299,7 +1299,6 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
         "es_suma": False,
         "mensaje": f"Préstamo de ${prestamo.monto_prestado} creado para {cliente.nombres}"
     }
-    }
 
 @app.post("/api/prestamos/renovar")
 def renovar_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = Depends(get_db)):
