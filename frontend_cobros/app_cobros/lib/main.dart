@@ -1990,11 +1990,12 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
                   )
                 else
                   ...todosLosPagos.map((p) {
-                    // Buscar la cuota asociada en el historial
                     String estado = 'Pagada';
+                    int? numeroCuota;
                     for (var prestamo in historial) {
                       for (var c in (prestamo['cuotas'] as List)) {
                         if (c['id'] == p['cuota_id']) {
+                          numeroCuota = c['numero'];
                           if (c['pagada'] == true && (c['valor_pagado'] ?? 0) < (c['valor'] ?? 0)) {
                             estado = 'Pagada parcialmente';
                           }
@@ -2010,7 +2011,7 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Cuota #${p['cuota_id']} - $estado',
+                              'Cuota #${numeroCuota ?? p['cuota_id']} - $estado',
                               style: const TextStyle(fontWeight: FontWeight.bold),
                             ),
                             Text('Monto: ${formatearDinero(p['cantidad_pagada'])}'),
@@ -2464,13 +2465,36 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
       );
 
       if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Cliente y préstamo registrados. Monto: ${formatearDinero(_montoController.text)}",
+        if (mounted) {
+          final d = jsonDecode(response.body);
+          final montoPrestado = d['monto_prestado'] ?? 0;
+          final cartulina = d['valor_cartulina'] ?? 0;
+          final totalEntregado = d['total_entregado'] ?? 0;
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Préstamo Registrado'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Cliente: ${_nombresController.text}'),
+                  const SizedBox(height: 8),
+                  Text('Valor prestado: ${formatearDinero(montoPrestado)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text('Cartulina: -${formatearDinero(cartulina)}', style: TextStyle(color: Colors.grey.shade600)),
+                  const Divider(),
+                  Text('Total a pagar: ${formatearDinero(d['total_deuda'])}'),
+                  Text('Cuotas: ${d['numero_cuotas']} de ${formatearDinero(d['valor_cuota'])}'),
+                  const SizedBox(height: 8),
+                  Text('Valor recibido: ${formatearDinero(totalEntregado)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Aceptar')),
+              ],
             ),
-          ),
-        );
+          );
+        }
         _nombresController.clear();
         _cedulaController.clear();
         _telefonoController.clear();
@@ -2789,13 +2813,40 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Préstamo creado\nTotal a cobrar: ${formatearDinero(data['total_deuda'])}\nCartulina: ${formatearDinero(data['valor_cartulina'])}",
+        final montoPrestado = data['monto_prestado'] ?? 0;
+        final deudaAnterior = data['deuda_anterior'] ?? 0;
+        final cartulina = data['valor_cartulina'] ?? 0;
+        final valorEntregado = data['valor_entregado'] ?? 0;
+        final totalEntregado = data['total_entregado'] ?? 0;
+        if (mounted) {
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Préstamo Registrado'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Cliente: $_nombreCliente'),
+                  const SizedBox(height: 8),
+                  Text('Valor prestado: ${formatearDinero(montoPrestado)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  if (deudaAnterior > 0) ...[
+                    Text('Deuda anterior: -${formatearDinero(deudaAnterior)}', style: const TextStyle(color: Colors.red)),
+                  ],
+                  Text('Cartulina: -${formatearDinero(cartulina)}', style: TextStyle(color: Colors.grey.shade600)),
+                  const Divider(),
+                  Text('Total a pagar: ${formatearDinero(data['total_deuda'])}'),
+                  Text('Cuotas: ${data['numero_cuotas']} de ${formatearDinero(data['valor_cuota'])}'),
+                  const SizedBox(height: 8),
+                  Text('Valor recibido: ${formatearDinero(totalEntregado)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Aceptar')),
+              ],
             ),
-          ),
-        );
+          );
+        }
         _busquedaController.clear();
         _montoController.clear();
         _cuotasController.clear();

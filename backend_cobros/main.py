@@ -982,12 +982,17 @@ def registrar_cliente_con_prestamo(datos: ClientePrestamoRegistro, admin_id: int
     ingreso.total_ingresos = ingreso.ingreso_cuotas + ingreso.ingreso_cartulinas
     db.commit()
     
+    valor_entregado = datos.monto_prestado - valor_cartulina
     return {
         "status": "success",
         "cliente_id": nuevo_cliente.id,
         "prestamo_id": nuevo_prestamo.id,
         "total_deuda": total_deuda,
         "valor_cartulina": valor_cartulina,
+        "monto_prestado": datos.monto_prestado,
+        "valor_entregado": valor_entregado,
+        "deuda_anterior": 0.0,
+        "total_entregado": valor_entregado,
         "valor_cuota": valor_cuota,
         "numero_cuotas": datos.numero_cuotas,
         "mensaje": f"Cliente {datos.nombres} registrado con préstamo de ${datos.monto_prestado}"
@@ -1152,26 +1157,31 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado o no pertenece a este admin")
     
-    # Verificar que el cliente haya pagado al menos el 80% del préstamo actual
+    # Verificar deuda activa
     prestamo_activo = db.query(Prestamo).filter(
         Prestamo.cliente_id == prestamo.cliente_id,
         Prestamo.pagado == False
     ).first()
+    
+    deuda_anterior = 0.0
     if prestamo_activo and prestamo_activo.total_deuda and prestamo_activo.total_deuda > 0:
         porcentaje_pagado = 1 - (prestamo_activo.deuda_restante / prestamo_activo.total_deuda)
-        if porcentaje_pagado < 0.8:
+        if porcentaje_pagado < 0.7:
             raise HTTPException(
                 status_code=400,
-                detail=f"Debe pagar al menos el 80% del préstamo actual antes de solicitar uno nuevo. Lleva pagado el {round(porcentaje_pagado * 100)}%"
+                detail=f"Debe pagar al menos el 70% antes de un nuevo préstamo. Lleva pagado el {round(porcentaje_pagado * 100)}%"
             )
+        deuda_anterior = prestamo_activo.deuda_restante
+        # Marcar préstamo anterior como pagado (se cancela con el nuevo)
+        prestamo_activo.pagado = True
+        prestamo_activo.fecha_finalizacion = datetime.utcnow()
     
-    # Cálculos
+    # Calcular nuevo préstamo (sobre el monto total solicitado)
     interes = prestamo.monto_prestado * (prestamo.interes_porcentaje / 100)
     total_deuda = prestamo.monto_prestado + interes
     valor_cartulina = (prestamo.monto_prestado / 100000) * 5000
     valor_cuota = total_deuda / prestamo.numero_cuotas
     
-    # Crear préstamo
     nuevo_prestamo = Prestamo(
         cliente_id=prestamo.cliente_id,
         usuario_id=usuario_id,
@@ -1186,7 +1196,6 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
     db.commit()
     db.refresh(nuevo_prestamo)
     
-    # Crear cuotas
     for i in range(1, prestamo.numero_cuotas + 1):
         fecha_vencimiento = calcular_fecha_vencimiento(
             date.today(), i, prestamo.frecuencia
@@ -1211,21 +1220,28 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
         ingreso = IngresoDia(usuario_id=usuario_id)
         db.add(ingreso)
 
-    # Asegurar que ingreso_cartulinas no sea None
     if ingreso.ingreso_cartulinas is None:
         ingreso.ingreso_cartulinas = 0.0
     ingreso.ingreso_cartulinas += valor_cartulina
-    # Asegurar que ingreso_cuotas no sea None
     if ingreso.ingreso_cuotas is None:
         ingreso.ingreso_cuotas = 0.0
     ingreso.total_ingresos = ingreso.ingreso_cuotas + ingreso.ingreso_cartulinas
     db.commit()
     
+    # Lo que recibe el cliente: prestamo - deuda_anterior - cartulina
+    valor_entregado = prestamo.monto_prestado - valor_cartulina
+    total_entregado = prestamo.monto_prestado - deuda_anterior - valor_cartulina
+    
     return {
         "status": "success",
         "prestamo_id": nuevo_prestamo.id,
         "total_deuda": total_deuda,
+        "deuda_restante": total_deuda,
         "valor_cartulina": valor_cartulina,
+        "monto_prestado": prestamo.monto_prestado,
+        "deuda_anterior": deuda_anterior,
+        "valor_entregado": valor_entregado,
+        "total_entregado": total_entregado,
         "valor_cuota": valor_cuota,
         "numero_cuotas": prestamo.numero_cuotas,
         "mensaje": f"Préstamo de ${prestamo.monto_prestado} creado para {cliente.nombres}"
