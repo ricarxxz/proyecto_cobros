@@ -753,11 +753,27 @@ def eliminar_cliente_admin(admin_id: int, cliente_id: int, db: Session = Depends
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
-    # Soft delete: marcar inactivo
-    cliente.activo = False
+    # Obtener todos los préstamos del cliente
+    prestamos = db.query(Prestamo).filter(Prestamo.cliente_id == cliente.id).all()
+    prestamo_ids = [p.id for p in prestamos]
+
+    # Eliminar pagos de las cuotas
+    if prestamo_ids:
+        db.query(PagoCuota).filter(PagoCuota.prestamo_id.in_(prestamo_ids)).delete(synchronize_session=False)
+
+    # Eliminar cuotas
+    if prestamo_ids:
+        db.query(Cuota).filter(Cuota.prestamo_id.in_(prestamo_ids)).delete(synchronize_session=False)
+
+    # Eliminar préstamos
+    for p in prestamos:
+        db.delete(p)
+
+    # Eliminar cliente
+    db.delete(cliente)
     db.commit()
 
-    return {"status": "success", "cliente_id": cliente.id, "mensaje": "Cliente desactivado"}
+    return {"status": "success", "mensaje": "Cliente y todos sus datos eliminados permanentemente"}
 
 
 @app.post("/api/admin/agregar-interes-mora")

@@ -1912,7 +1912,7 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Cliente desactivado')));
+        ).showSnackBar(const SnackBar(content: Text('Cliente eliminado permanentemente')));
         _cargarClientes();
       } else {
         final error = jsonDecode(response.body);
@@ -2199,79 +2199,68 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
     final nombresController = TextEditingController(text: cliente['nombres']);
     final telefonoController = TextEditingController(text: cliente['telefono']);
     String diaCobro = cliente['dia_cobro'] ?? 'lunes';
-    bool activo = cliente['activo'] ?? true;
-
     await showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Editar Cliente'),
-          content: SingleChildScrollView(
-            child: Column(
-              children: [
-                TextField(
-                  controller: nombresController,
-                  decoration: const InputDecoration(labelText: 'Nombres'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: telefonoController,
-                  decoration: const InputDecoration(labelText: 'Teléfono'),
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  value: diaCobro,
-                  decoration: const InputDecoration(labelText: 'Día de cobro'),
-                  items:
-                      [
-                            'lunes',
-                            'martes',
-                            'miércoles',
-                            'jueves',
-                            'viernes',
-                            'sábado',
-                            'domingo',
-                          ]
-                          .map(
-                            (dia) => DropdownMenuItem(
-                              value: dia,
-                              child: Text(
-                                dia[0].toUpperCase() + dia.substring(1),
-                              ),
+      builder: (context) => AlertDialog(
+        title: const Text('Editar Cliente'),
+        content: SingleChildScrollView(
+          child: Column(
+            children: [
+              TextField(
+                controller: nombresController,
+                decoration: const InputDecoration(labelText: 'Nombres'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: telefonoController,
+                decoration: const InputDecoration(labelText: 'Teléfono'),
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                value: diaCobro,
+                decoration: const InputDecoration(labelText: 'Día de cobro'),
+                items:
+                    [
+                          'lunes',
+                          'martes',
+                          'miércoles',
+                          'jueves',
+                          'viernes',
+                          'sábado',
+                          'domingo',
+                        ]
+                        .map(
+                          (dia) => DropdownMenuItem(
+                            value: dia,
+                            child: Text(
+                              dia[0].toUpperCase() + dia.substring(1),
                             ),
-                          )
-                          .toList(),
-                  onChanged: (value) => diaCobro = value ?? 'lunes',
-                ),
-                const SizedBox(height: 10),
-                SwitchListTile(
-                  title: const Text('Activo'),
-                  value: activo,
-                  onChanged: (value) => setDialogState(() => activo = value),
-                ),
-              ],
-            ),
+                          ),
+                        )
+                        .toList(),
+                onChanged: (value) => diaCobro = value ?? 'lunes',
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                await _editarCliente(
-                  cliente['id'],
-                  nombresController.text,
-                  telefonoController.text,
-                  diaCobro,
-                  activo,
-                );
-              },
-              child: const Text('Guardar'),
-            ),
-          ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _editarCliente(
+                cliente['id'],
+                nombresController.text,
+                telefonoController.text,
+                diaCobro,
+              );
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
       ),
     );
   }
@@ -2281,7 +2270,6 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
     String nombres,
     String telefono,
     String diaCobro,
-    bool activo,
   ) async {
     try {
       final response = await http.post(
@@ -2293,7 +2281,6 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
           'nombres': nombres,
           'telefono': telefono,
           'dia_cobro': diaCobro,
-          'activo': activo,
         }),
       );
       if (response.statusCode == 200) {
