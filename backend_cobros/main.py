@@ -602,8 +602,15 @@ def alertas_cuotas_vencidas(admin_id: int, db: Session = Depends(get_db)):
     ).all()
     alertas = []
 
+    # Solo la última cuota (mayor número) de cada préstamo
+    ultimas_por_prestamo = {}
     for cuota in cuotas:
-        prestamo = db.query(Prestamo).filter(Prestamo.id == cuota.prestamo_id).first()
+        pid = cuota.prestamo_id
+        if pid not in ultimas_por_prestamo or cuota.numero_cuota > ultimas_por_prestamo[pid].numero_cuota:
+            ultimas_por_prestamo[pid] = cuota
+
+    for pid, cuota in ultimas_por_prestamo.items():
+        prestamo = db.query(Prestamo).filter(Prestamo.id == pid).first()
         if not prestamo:
             continue
 
@@ -616,15 +623,17 @@ def alertas_cuotas_vencidas(admin_id: int, db: Session = Depends(get_db)):
         alertas.append({
             "id": cuota.id,
             "cuota_id": cuota.id,
-            "prestamo_id": prestamo.id,
+            "prestamo_id": pid,
             "cliente_id": cliente.id,
             "cliente_nombre": cliente.nombres,
             "cedula": cliente.cedula,
             "numero_cuota": cuota.numero_cuota,
+            "total_cuotas": db.query(Cuota).filter(Cuota.prestamo_id == pid).count(),
             "valor": cuota.valor_cuota,
             "pendiente": cuota.valor_pendiente,
             "vencimiento": cuota.fecha_vencimiento,
             "dias_atrasados": dias_atrasados,
+            "frecuencia": prestamo.frecuencia or "semanal",
         })
 
     db.commit()
@@ -676,6 +685,23 @@ def gestionar_cuota_vencida(request: GestionCuotaVencidaRequest, admin_id: int, 
         cuota.atrasada = True
         db.commit()
         return {"status": "success", "mensaje": f"Se ajustó el interés a {request.nuevo_porcentaje}%"}
+
+    if request.accion == "aplazar_con_interes":
+        if request.nuevo_porcentaje is None:
+            raise HTTPException(status_code=400, detail="Debe indicar el porcentaje")
+        dias_extra = {"semanal": 7, "quincenal": 15, "mensual": 30}.get(prestamo.frecuencia or "semanal", 7)
+        nueva_fecha = (cuota.fecha_vencimiento + timedelta(days=dias_extra)) if cuota.fecha_vencimiento else date.today() + timedelta(days=dias_extra)
+        cuota.fecha_vencimiento = nueva_fecha
+        # Aplicar interés solo a esta cuota
+        aumento = cuota.valor_cuota * (request.nuevo_porcentaje / 100)
+        cuota.valor_cuota = round(cuota.valor_cuota + aumento, 2)
+        cuota.valor_pendiente = round(cuota.valor_pendiente + aumento, 2)
+        cuota.atrasada = False
+        # Reflejar en el préstamo
+        prestamo.deuda_restante = round((prestamo.deuda_restante or 0.0) + aumento, 2)
+        prestamo.total_deuda = round((prestamo.total_deuda or 0.0) + aumento, 2)
+        db.commit()
+        return {"status": "success", "mensaje": f"Cuota aplazada {dias_extra} días con {request.nuevo_porcentaje}% de interés"}
 
     raise HTTPException(status_code=400, detail="Acción no soportada")
 
@@ -1376,6 +1402,9 @@ def registrar_pago(pago: PagoCuotaRegistro, usuario_id: int, db: Session = Depen
     
     if cuota.valor_pendiente == 0:
         cuota.pagada = True
+    else:
+        # Pago parcial: eliminar la cuota y redistribuir entre las restantes
+        db.delete(cuota)
     
     # Actualizar deuda del préstamo
     prestamo.deuda_restante = max(0, prestamo.deuda_restante - pago.cantidad_pagada)
@@ -1421,6 +1450,54 @@ def registrar_pago(pago: PagoCuotaRegistro, usuario_id: int, db: Session = Depen
         "prestamo_finalizado": prestamo.pagado,
         "deuda_restante": prestamo.deuda_restante
     }
+
+@app.post("/api/cobros/gestionar-cuota")
+def gestionar_cuota_cobros(cuota_id: int, accion: str, usuario_id: int, nuevo_porcentaje: float = None, db: Session = Depends(get_db)):
+    """
+    Permite a cualquier usuario (admin o trabajador) aplazar una cuota desde la pantalla de cobros.
+    """
+    cuota = db.query(Cuota).filter(Cuota.id == cuota_id).first()
+    if not cuota:
+        raise HTTPException(status_code=404, detail="Cuota no encontrada")
+    
+    prestamo = db.query(Prestamo).filter(Prestamo.id == cuota.prestamo_id).first()
+    if not prestamo:
+        raise HTTPException(status_code=404, detail="Préstamo no encontrado")
+    
+    cliente = db.query(Cliente).filter(Cliente.id == prestamo.cliente_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    
+    # Verificar permisos
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if usuario and usuario.rol == RolUsuario.TRABAJADOR:
+        if cliente.usuario_id != usuario.creado_por:
+            raise HTTPException(status_code=403, detail="No tienes permiso")
+    
+    dias_extra = {"semanal": 7, "quincenal": 15, "mensual": 30}.get(prestamo.frecuencia or "semanal", 7)
+    
+    if accion == "aplazar":
+        nueva_fecha = (cuota.fecha_vencimiento + timedelta(days=dias_extra)) if cuota.fecha_vencimiento else date.today() + timedelta(days=dias_extra)
+        cuota.fecha_vencimiento = nueva_fecha
+        cuota.atrasada = False
+        db.commit()
+        return {"status": "success", "mensaje": f"Cuota aplazada {dias_extra} días hasta {nueva_fecha}"}
+    
+    if accion == "aplazar_con_interes":
+        if nuevo_porcentaje is None:
+            raise HTTPException(status_code=400, detail="Debe indicar el porcentaje")
+        nueva_fecha = (cuota.fecha_vencimiento + timedelta(days=dias_extra)) if cuota.fecha_vencimiento else date.today() + timedelta(days=dias_extra)
+        cuota.fecha_vencimiento = nueva_fecha
+        aumento = cuota.valor_cuota * (nuevo_porcentaje / 100)
+        cuota.valor_cuota = round(cuota.valor_cuota + aumento, 2)
+        cuota.valor_pendiente = round(cuota.valor_pendiente + aumento, 2)
+        cuota.atrasada = False
+        prestamo.deuda_restante = round((prestamo.deuda_restante or 0.0) + aumento, 2)
+        prestamo.total_deuda = round((prestamo.total_deuda or 0.0) + aumento, 2)
+        db.commit()
+        return {"status": "success", "mensaje": f"Cuota aplazada {dias_extra} días con {nuevo_porcentaje}% de interés"}
+    
+    raise HTTPException(status_code=400, detail="Acción no soportada")
 
 # ============= ENDPOINTS: INGRESOS Y GASTOS =============
 

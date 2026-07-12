@@ -576,6 +576,114 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
     }
   }
 
+  List<Widget> _buildUltimasCuotasAtrasadas(List historial, dynamic cliente, BuildContext ctx) {
+    List<Widget> widgets = [];
+    for (var p in historial) {
+      if (p['pagado'] == true) continue;
+      var cuotas = (p['cuotas'] as List).where((c) => c['pagada'] != true).toList();
+      if (cuotas.isEmpty) continue;
+      var ultima = cuotas.reduce((a, b) => (a['numero'] ?? 0) > (b['numero'] ?? 0) ? a : b);
+      if (ultima['atrasada'] != true) continue;
+      widgets.add(const Divider());
+      widgets.add(Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Última cuota vencida', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+            Text('Cuota #${ultima['numero']} - ${formatearDinero(ultima['valor'])}'),
+            Text('Vence: ${ultima['vencimiento']}'),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 32,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _gestionarCuotaDesdeDialog(ultima['id'], 'aplazar', null, cliente);
+                      },
+                      icon: const Icon(Icons.date_range, size: 14),
+                      label: const Text('Aplazar', style: TextStyle(fontSize: 11)),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: SizedBox(
+                    height: 32,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _mostrarDialogoAplazarConInteres(ultima['id'], cliente);
+                      },
+                      icon: const Icon(Icons.percent, size: 14),
+                      label: const Text('+ Interés', style: TextStyle(fontSize: 11)),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ));
+    }
+    return widgets;
+  }
+
+  Future<void> _gestionarCuotaDesdeDialog(int cuotaId, String accion, double? porcentaje, dynamic cliente) async {
+    try {
+      String url = 'https://proyecto-cobros.onrender.com/api/cobros/gestionar-cuota?cuota_id=$cuotaId&accion=$accion&usuario_id=${SessionGlobal.usuarioId}';
+      if (porcentaje != null) url += '&nuevo_porcentaje=$porcentaje';
+      final response = await http.post(Uri.parse(url));
+      if (response.statusCode == 200 && mounted) {
+        final data = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data['mensaje'] ?? 'Cuota gestionada'), backgroundColor: Colors.green),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al gestionar cuota')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _mostrarDialogoAplazarConInteres(int cuotaId, dynamic cliente) async {
+    final porcentajeController = TextEditingController(text: '20');
+    final aplicar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Aplazar con interés'),
+        content: TextField(
+          controller: porcentajeController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Porcentaje de interés', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Aplicar')),
+        ],
+      ),
+    );
+    if (aplicar == true) {
+      final pct = double.tryParse(porcentajeController.text.trim());
+      if (pct == null || pct <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ingrese un porcentaje válido')));
+        return;
+      }
+      await _gestionarCuotaDesdeDialog(cuotaId, 'aplazar_con_interes', pct, cliente);
+    }
+  }
+
   Future<void> _mostrarInfoCliente(dynamic cliente) async {
     try {
       final response = await http.get(
@@ -642,6 +750,8 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                 Text('Cuota #${cuotasPendientes[0]['numero']} - ${formatearDinero(cuotasPendientes[0]['valor'])}'),
                 Text('Vence: ${cuotasPendientes[0]['vencimiento']}'),
               ],
+              // Últimas cuotas atrasadas de cada préstamo
+              ..._buildUltimasCuotasAtrasadas(historial, cliente, ctx),
             ],
           ),
           actions: [
@@ -2979,6 +3089,101 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
     }
   }
 
+  List<Map<String, dynamic>> _obtenerUltimasCuotasAtrasadas() {
+    if (_clienteInfo == null) return [];
+    final historial = _clienteInfo!['historial_prestamos'] as List? ?? [];
+    List<Map<String, dynamic>> resultado = [];
+
+    for (var prestamo in historial) {
+      if (prestamo['pagado'] == true) continue;
+      final cuotas = prestamo['cuotas'] as List? ?? [];
+      // Última cuota no pagada (mayor número)
+      Map<String, dynamic>? ultima;
+      for (var c in cuotas) {
+        if (c['pagada'] == true) continue;
+        if (ultima == null || (c['numero'] ?? 0) > (ultima['numero'] ?? 0)) {
+          ultima = c;
+        }
+      }
+      if (ultima != null && ultima['atrasada'] == true) {
+        resultado.add({
+          'cuota': ultima,
+          'monto_prestado': prestamo['monto_prestado'],
+          'prestamo_id': prestamo['prestamo_id'],
+        });
+      }
+    }
+    return resultado;
+  }
+
+  Future<void> _aplazarCuota(int cuotaId, String accion, double? porcentaje) async {
+    if (await verificarBloqueo(context)) return;
+    try {
+      String url = 'https://proyecto-cobros.onrender.com/api/cobros/gestionar-cuota?cuota_id=$cuotaId&accion=$accion&usuario_id=${SessionGlobal.usuarioId}';
+      if (porcentaje != null) {
+        url += '&nuevo_porcentaje=$porcentaje';
+      }
+      final response = await http.post(Uri.parse(url));
+      if (response.statusCode == 200 && mounted) {
+        final data = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data['mensaje'] ?? 'Cuota gestionada'), backgroundColor: Colors.green),
+        );
+        // Recargar info del cliente
+        if (_clienteId != null) {
+          final r = await http.get(Uri.parse(
+            'https://proyecto-cobros.onrender.com/api/reportes/cliente/$_clienteId',
+          ));
+          if (r.statusCode == 200 && mounted) {
+            final reportData = jsonDecode(r.body);
+            final historial = reportData['historial_prestamos'] as List;
+            List<dynamic> cuotas = [];
+            for (var prestamo in historial) {
+              for (var cuota in prestamo['cuotas']) {
+                if (!(cuota['pagada'] ?? false)) {
+                  cuotas.add({...cuota, 'prestamo_id': prestamo['prestamo_id']});
+                }
+              }
+            }
+            cuotas.sort((a, b) => DateTime.parse(a['vencimiento'].toString()).compareTo(DateTime.parse(b['vencimiento'].toString())));
+            if (mounted) setState(() { _clienteInfo = reportData; _cuotasPendientes = cuotas; });
+          }
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al procesar')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _mostrarDialogoAplazarConInteres(int cuotaId) async {
+    final porcentajeController = TextEditingController(text: '20');
+    final aplicar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Aplazar con interés'),
+        content: TextField(
+          controller: porcentajeController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Porcentaje de interés', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Aplicar')),
+        ],
+      ),
+    );
+    if (aplicar == true) {
+      final pct = double.tryParse(porcentajeController.text.trim());
+      if (pct == null || pct <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ingrese un porcentaje válido')));
+        return;
+      }
+      await _aplazarCuota(cuotaId, 'aplazar_con_interes', pct);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -3098,6 +3303,52 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
                   ),
                 ],
               ],
+              // Cuotas atrasadas (última cuota de cada préstamo)
+              if (_clienteInfo != null) ..._obtenerUltimasCuotasAtrasadas().map((item) =>
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Card(
+                    color: Colors.red.shade50,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '⚠ Última cuota vencida - Préstamo \$${formatearDinero(item['monto_prestado'])}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                          ),
+                          const SizedBox(height: 4),
+                          Text('Cuota #${item['cuota']['numero']} - ${formatearDinero(item['cuota']['valor'])}'),
+                          Text('Vence: ${item['cuota']['vencimiento']}'),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _aplazarCuota(item['cuota']['id'], 'aplazar', null),
+                                  icon: const Icon(Icons.date_range, size: 16),
+                                  label: const Text('Aplazar', style: TextStyle(fontSize: 12)),
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _mostrarDialogoAplazarConInteres(item['cuota']['id']),
+                                  icon: const Icon(Icons.percent, size: 16),
+                                  label: const Text('Aplazar + Interés', style: TextStyle(fontSize: 12)),
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              ),
               const SizedBox(height: 20),
               TextField(
                 controller: _pagoController,
