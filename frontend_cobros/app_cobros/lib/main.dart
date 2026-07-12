@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'colors.dart';
 import 'app_styles.dart';
 import 'package:http/http.dart' as http;
@@ -20,6 +21,34 @@ String formatearDinero(dynamic valor) {
     cnt++;
   }
   return '${negativo ? '-' : ''}\$${buf.toString().split('').reversed.join()}';
+}
+
+class MoneyInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    String digits = newValue.text.replaceAll(RegExp(r'[^\d]'), '');
+    if (digits.isEmpty) return TextEditingValue.empty;
+    String formatted = _formatWithDots(digits);
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+
+  String _formatWithDots(String digits) {
+    StringBuffer buf = StringBuffer();
+    int cnt = 0;
+    for (int i = digits.length - 1; i >= 0; i--) {
+      if (cnt > 0 && cnt % 3 == 0) buf.write('.');
+      buf.write(digits[i]);
+      cnt++;
+    }
+    return buf.toString().split('').reversed.join();
+  }
+}
+
+double parseMonto(String text) {
+  return double.tryParse(text.replaceAll('.', '')) ?? 0;
 }
 
 void main() => runApp(
@@ -2444,7 +2473,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
           'cedula': _cedulaController.text,
           'telefono': _telefonoController.text,
           'dia_cobro': _diaCobro,
-          'monto_prestado': double.parse(_montoController.text),
+          'monto_prestado': parseMonto(_montoController.text),
           'interes_porcentaje': _interes,
           'numero_cuotas': int.parse(_cuotasController.text),
           'frecuencia': _frecuencia,
@@ -2582,9 +2611,8 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
               const SizedBox(height: 10),
               TextField(
                 controller: _montoController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [MoneyInputFormatter()],
                 decoration: const InputDecoration(
                   labelText: "Monto a prestar",
                   border: OutlineInputBorder(),
@@ -2791,7 +2819,7 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'cliente_id': _clienteId,
-          'monto_prestado': double.parse(_montoController.text),
+          'monto_prestado': parseMonto(_montoController.text),
           'interes_porcentaje': _interes,
           'numero_cuotas': int.parse(_cuotasController.text),
           'frecuencia': _frecuencia,
@@ -2922,6 +2950,7 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
               TextField(
                 controller: _montoController,
                 keyboardType: TextInputType.number,
+                inputFormatters: [MoneyInputFormatter()],
                 decoration: const InputDecoration(
                   labelText: "Monto a Prestar",
                   border: OutlineInputBorder(),
