@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'colors.dart';
 import 'app_styles.dart';
 import 'package:http/http.dart' as http;
@@ -23,27 +22,29 @@ String formatearDinero(dynamic valor) {
   return '${negativo ? '-' : ''}\$${buf.toString().split('').reversed.join()}';
 }
 
-class MoneyInputFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
-    String digits = newValue.text.replaceAll(RegExp(r'[^\d]'), '');
-    if (digits.isEmpty) return TextEditingValue.empty;
-    String formatted = _formatWithDots(digits);
-    return TextEditingValue(
+String _formatWithDots(String digits) {
+  StringBuffer buf = StringBuffer();
+  int cnt = 0;
+  for (int i = digits.length - 1; i >= 0; i--) {
+    if (cnt > 0 && cnt % 3 == 0) buf.write('.');
+    buf.write(digits[i]);
+    cnt++;
+  }
+  return buf.toString().split('').reversed.join();
+}
+
+void _onMontoChanged(TextEditingController ctrl) {
+  String digits = ctrl.text.replaceAll(RegExp(r'[^\d]'), '');
+  if (digits.isEmpty) {
+    if (ctrl.text.isNotEmpty) ctrl.text = '';
+    return;
+  }
+  String formatted = _formatWithDots(digits);
+  if (formatted != ctrl.text) {
+    ctrl.value = TextEditingValue(
       text: formatted,
       selection: TextSelection.collapsed(offset: formatted.length),
     );
-  }
-
-  String _formatWithDots(String digits) {
-    StringBuffer buf = StringBuffer();
-    int cnt = 0;
-    for (int i = digits.length - 1; i >= 0; i--) {
-      if (cnt > 0 && cnt % 3 == 0) buf.write('.');
-      buf.write(digits[i]);
-      cnt++;
-    }
-    return buf.toString().split('').reversed.join();
   }
 }
 
@@ -398,6 +399,15 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
       _cargarAlertasCuotasVencidas();
     }
     _busquedaController.addListener(_onSearchChanged);
+    _verificarSesionPeriodicamente();
+  }
+
+  Timer? _checkTimer;
+
+  void _verificarSesionPeriodicamente() {
+    _checkTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+      if (mounted) await verificarCuentaActiva(context);
+    });
   }
 
   @override
@@ -405,6 +415,7 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
     _busquedaController.removeListener(_onSearchChanged);
     _busquedaController.dispose();
     _debounce?.cancel();
+    _checkTimer?.cancel();
     super.dispose();
   }
 
@@ -1105,6 +1116,21 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                     MaterialPageRoute(
                       builder: (_) => const BuscarClienteScreen(),
                     ),
+                  );
+                },
+              ),
+              const Divider(),
+            ],
+            // MENÚ PARA DESARROLLADOR
+            if (SessionGlobal.rol == 'desarrollador') ...[
+              ListTile(
+                leading: const Icon(Icons.admin_panel_settings, color: Colors.red),
+                title: const Text('Panel Desarrollador'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DesarrolladorScreen()),
                   );
                 },
               ),
@@ -2612,7 +2638,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
               TextField(
                 controller: _montoController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [MoneyInputFormatter()],
+                onChanged: (_) => _onMontoChanged(_montoController),
                 decoration: const InputDecoration(
                   labelText: "Monto a prestar",
                   border: OutlineInputBorder(),
@@ -2950,7 +2976,7 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
               TextField(
                 controller: _montoController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [MoneyInputFormatter()],
+                onChanged: (_) => _onMontoChanged(_montoController),
                 decoration: const InputDecoration(
                   labelText: "Monto a Prestar",
                   border: OutlineInputBorder(),
@@ -4394,6 +4420,201 @@ class _CierreDiaScreenState extends State<CierreDiaScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ============= VERIFICAR CUENTA ACTIVA =============
+
+Future<bool> verificarCuentaActiva(BuildContext context) async {
+  try {
+    final response = await http.get(
+      Uri.parse(
+        'https://proyecto-cobros.onrender.com/api/auth/verificar-activo?usuario_id=${SessionGlobal.usuarioId}',
+      ),
+    );
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['activo'] == false) {
+        if (context.mounted) {
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Cuenta Desactivada'),
+              content: const Text('No has pagado. Contacta al administrador.'),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      (route) => false,
+                    );
+                  },
+                  child: const Text('Cerrar Sesión'),
+                ),
+              ],
+            ),
+          );
+        }
+        return false;
+      }
+    }
+  } catch (_) {}
+  return true;
+}
+
+// ============= PANEL DESARROLLADOR =============
+
+class DesarrolladorScreen extends StatefulWidget {
+  const DesarrolladorScreen({super.key});
+  @override
+  State<DesarrolladorScreen> createState() => _DesarrolladorScreenState();
+}
+
+class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
+  List _admins = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarUsuarios();
+  }
+
+  Future<void> _cargarUsuarios() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.get(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/desarrollador/listar-usuarios?usuario_id=${SessionGlobal.usuarioId}',
+        ),
+      );
+      if (response.statusCode == 200) {
+        setState(() => _admins = jsonDecode(response.body));
+      }
+    } catch (_) {}
+    setState(() => _isLoading = false);
+  }
+
+  Future<void> _desactivar(int userId, String nombre) async {
+    await http.post(Uri.parse(
+      'https://proyecto-cobros.onrender.com/api/desarrollador/desactivar-usuario?usuario_id=${SessionGlobal.usuarioId}&target_id=$userId',
+    ));
+    _cargarUsuarios();
+  }
+
+  Future<void> _activar(int userId, String nombre) async {
+    await http.post(Uri.parse(
+      'https://proyecto-cobros.onrender.com/api/desarrollador/activar-usuario?usuario_id=${SessionGlobal.usuarioId}&target_id=$userId',
+    ));
+    _cargarUsuarios();
+  }
+
+  Future<void> _eliminar(int userId, String nombre) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirmar'),
+        content: Text('¿Eliminar a $nombre permanentemente?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Eliminar')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await http.post(Uri.parse(
+        'https://proyecto-cobros.onrender.com/api/desarrollador/eliminar-usuario?usuario_id=${SessionGlobal.usuarioId}&target_id=$userId',
+      ));
+      _cargarUsuarios();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Panel Desarrollador'), backgroundColor: Colors.red),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _cargarUsuarios,
+              child: ListView.builder(
+                itemCount: _admins.length,
+                itemBuilder: (_, i) {
+                  final admin = _admins[i];
+                  final workers = admin['trabajadores'] as List;
+                  return Card(
+                    margin: const EdgeInsets.all(8),
+                    child: ExpansionTile(
+                      leading: Icon(
+                        admin['activo'] ? Icons.check_circle : Icons.cancel,
+                        color: admin['activo'] ? Colors.green : Colors.red,
+                      ),
+                      title: Text(admin['nombre'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('${admin['email']} — Clientes: ${admin['clientes_count']}'),
+                      children: [
+                        _buildUserActions(admin['id'], admin['nombre'], admin['email'], admin['activo']),
+                        const Divider(),
+                        if (workers.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Text('Sin trabajadores', style: TextStyle(color: Colors.grey)),
+                          )
+                        else
+                          ...workers.map((w) => ListTile(
+                                leading: Icon(
+                                  w['activo'] ? Icons.person : Icons.person_off,
+                                  color: w['activo'] ? Colors.blue : Colors.red,
+                                ),
+                                title: Text(w['nombre']),
+                                subtitle: Text(w['email']),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: Icon(w['activo'] ? Icons.block : Icons.check, color: Colors.orange),
+                                      onPressed: () => w['activo'] ? _desactivar(w['id'], w['nombre']) : _activar(w['id'], w['nombre']),
+                                      tooltip: w['activo'] ? 'Desactivar' : 'Activar',
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_forever, color: Colors.red),
+                                      onPressed: () => _eliminar(w['id'], w['nombre']),
+                                      tooltip: 'Eliminar',
+                                    ),
+                                  ],
+                                ),
+                              )),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+    );
+  }
+
+  Widget _buildUserActions(int id, String nombre, String email, bool activo) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(email, style: const TextStyle(color: Colors.grey)),
+          ),
+          IconButton(
+            icon: Icon(activo ? Icons.block : Icons.check, color: Colors.orange),
+            onPressed: () => activo ? _desactivar(id, nombre) : _activar(id, nombre),
+            tooltip: activo ? 'Desactivar' : 'Activar',
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_forever, color: Colors.red),
+            onPressed: () => _eliminar(id, nombre),
+            tooltip: 'Eliminar',
+          ),
+        ],
       ),
     );
   }

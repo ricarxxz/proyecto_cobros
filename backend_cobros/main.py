@@ -34,6 +34,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 class RolUsuario(str, enum.Enum):
     ADMINISTRADOR = "administrador"
     TRABAJADOR = "trabajador"
+    DESARROLLADOR = "desarrollador"
 
 class FrecuenciaCuota(str, enum.Enum):
     SEMANAL = "semanal"
@@ -317,6 +318,9 @@ def login(credenciales: UsuarioLogin, db: Session = Depends(get_db)):
     if not usuario or not verify_password(credenciales.password, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
     
+    if not usuario.activo:
+        raise HTTPException(status_code=403, detail="Cuenta desactivada. Contacte al administrador.")
+    
     return {
         "status": "success",
         "usuario_id": usuario.id,
@@ -324,6 +328,13 @@ def login(credenciales: UsuarioLogin, db: Session = Depends(get_db)):
         "email": usuario.email,
         "rol": usuario.rol
     }
+
+@app.get("/api/auth/verificar-activo")
+def verificar_activo(usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"activo": usuario.activo}
 
 # ============= ENDPOINTS: ADMINISTRACIÓN DE TRABAJADORES =============
 
@@ -1451,6 +1462,70 @@ def obtener_prestamo(prestamo_id: int, db: Session = Depends(get_db)):
             for c in cuotas
         ]
     }
+
+# ============= ENDPOINTS: DESARROLLADOR =============
+
+@app.get("/api/desarrollador/listar-usuarios")
+def desarrollador_listar_usuarios(usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario or usuario.rol != RolUsuario.DESARROLLADOR:
+        raise HTTPException(status_code=403, detail="Solo desarrolladores")
+    
+    admins = db.query(Usuario).filter(Usuario.rol == RolUsuario.ADMINISTRADOR).all()
+    result = []
+    for admin in admins:
+        workers = db.query(Usuario).filter(Usuario.creado_por == admin.id).all()
+        clientes_count = db.query(Cliente).filter(Cliente.usuario_id == admin.id).count()
+        result.append({
+            "id": admin.id,
+            "nombre": admin.nombre,
+            "email": admin.email,
+            "activo": admin.activo,
+            "clientes_count": clientes_count,
+            "trabajadores": [
+                {"id": w.id, "nombre": w.nombre, "email": w.email, "activo": w.activo}
+                for w in workers
+            ]
+        })
+    return result
+
+@app.post("/api/desarrollador/desactivar-usuario")
+def desarrollador_desactivar(usuario_id: int, target_id: int, db: Session = Depends(get_db)):
+    dev = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not dev or dev.rol != RolUsuario.DESARROLLADOR:
+        raise HTTPException(status_code=403, detail="Solo desarrolladores")
+    target = db.query(Usuario).filter(Usuario.id == target_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    target.activo = False
+    db.commit()
+    return {"status": "success", "mensaje": f"Usuario {target.nombre} desactivado"}
+
+@app.post("/api/desarrollador/activar-usuario")
+def desarrollador_activar(usuario_id: int, target_id: int, db: Session = Depends(get_db)):
+    dev = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not dev or dev.rol != RolUsuario.DESARROLLADOR:
+        raise HTTPException(status_code=403, detail="Solo desarrolladores")
+    target = db.query(Usuario).filter(Usuario.id == target_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    target.activo = True
+    db.commit()
+    return {"status": "success", "mensaje": f"Usuario {target.nombre} activado"}
+
+@app.post("/api/desarrollador/eliminar-usuario")
+def desarrollador_eliminar(usuario_id: int, target_id: int, db: Session = Depends(get_db)):
+    dev = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not dev or dev.rol != RolUsuario.DESARROLLADOR:
+        raise HTTPException(status_code=403, detail="Solo desarrolladores")
+    target = db.query(Usuario).filter(Usuario.id == target_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if target.rol == RolUsuario.DESARROLLADOR:
+        raise HTTPException(status_code=400, detail="No puedes eliminar otro desarrollador")
+    db.delete(target)
+    db.commit()
+    return {"status": "success", "mensaje": f"Usuario {target.nombre} eliminado"}
 
 # ============= ENDPOINTS: COBROS =============
 
