@@ -1183,7 +1183,7 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
             prestamo_activo.monto_prestado = round((prestamo_activo.monto_prestado or 0.0) + prestamo.monto_prestado, 2)
             prestamo_activo.valor_cartulina = round((prestamo_activo.valor_cartulina or 0.0) + valor_cartulina, 2)
             
-            ultimo_numero = db.query(db.func.max(Cuota.numero_cuota)).filter(
+            ultimo_numero = db.query(func.max(Cuota.numero_cuota)).filter(
                 Cuota.prestamo_id == prestamo_activo.id
             ).scalar() or 0
             for i in range(1, prestamo.numero_cuotas + 1):
