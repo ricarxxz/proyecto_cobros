@@ -1152,6 +1152,19 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado o no pertenece a este admin")
     
+    # Verificar que el cliente haya pagado al menos el 80% del préstamo actual
+    prestamo_activo = db.query(Prestamo).filter(
+        Prestamo.cliente_id == prestamo.cliente_id,
+        Prestamo.pagado == False
+    ).first()
+    if prestamo_activo and prestamo_activo.total_deuda and prestamo_activo.total_deuda > 0:
+        porcentaje_pagado = 1 - (prestamo_activo.deuda_restante / prestamo_activo.total_deuda)
+        if porcentaje_pagado < 0.8:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Debe pagar al menos el 80% del préstamo actual antes de solicitar uno nuevo. Lleva pagado el {round(porcentaje_pagado * 100)}%"
+            )
+    
     # Cálculos
     interes = prestamo.monto_prestado * (prestamo.interes_porcentaje / 100)
     total_deuda = prestamo.monto_prestado + interes
@@ -1405,6 +1418,7 @@ def registrar_pago(pago: PagoCuotaRegistro, usuario_id: int, db: Session = Depen
     else:
         # Pago parcial: eliminar la cuota y redistribuir entre las restantes
         db.delete(cuota)
+        db.flush()  # Asegurar que el delete se refleje en la siguiente consulta
     
     # Actualizar deuda del préstamo
     prestamo.deuda_restante = max(0, prestamo.deuda_restante - pago.cantidad_pagada)

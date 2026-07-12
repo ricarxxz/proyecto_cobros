@@ -1989,24 +1989,37 @@ class _GestionClientesScreenState extends State<GestionClientesScreen> {
                     child: Text('No hay pagos registrados'),
                   )
                 else
-                  ...todosLosPagos.map((p) => Card(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Pago #${p['id']}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          Text('Monto: ${formatearDinero(p['cantidad_pagada'])}'),
-                          Text('Fecha: ${p['fecha_pago']}'),
-                          Text('Cuota #${p['cuota_id']}'),
-                        ],
+                  ...todosLosPagos.map((p) {
+                    // Buscar la cuota asociada en el historial
+                    String estado = 'Pagada';
+                    for (var prestamo in historial) {
+                      for (var c in (prestamo['cuotas'] as List)) {
+                        if (c['id'] == p['cuota_id']) {
+                          if (c['pagada'] == true && (c['valor_pagado'] ?? 0) < (c['valor'] ?? 0)) {
+                            estado = 'Pagada parcialmente';
+                          }
+                          break;
+                        }
+                      }
+                    }
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Cuota #${p['cuota_id']} - $estado',
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            Text('Monto: ${formatearDinero(p['cantidad_pagada'])}'),
+                            Text('Fecha: ${p['fecha_pago']}'),
+                          ],
+                        ),
                       ),
-                    ),
-                  )),
+                    );
+                  }),
                 const Divider(height: 20),
                 const Text(
                   'Cuotas',
