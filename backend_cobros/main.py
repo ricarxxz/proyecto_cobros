@@ -1,7 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Enum, Date, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -51,7 +49,7 @@ class Usuario(Base):
     nombre = Column(String, index=True)
     email = Column(String, unique=True, index=True)
     password_hash = Column(String)
-    rol = Column(Enum(RolUsuario), default=RolUsuario.TRABAJADOR)
+    rol = Column(Enum(RolUsuario, values_callable=lambda x: [e.value for e in x]), default=RolUsuario.TRABAJADOR)
     activo = Column(Boolean, default=True)
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     creado_por = Column(Integer, nullable=True)  # Admin que registró este usuario (solo para trabajadores)
@@ -219,6 +217,16 @@ try:
 except Exception:
     pass
 
+# Migración: convertir roles existentes de nombres a valores (ADMINISTRADOR → administrador)
+try:
+    with engine.connect() as conn:
+        conn.execute(text("UPDATE usuarios SET rol = 'administrador' WHERE rol = 'ADMINISTRADOR'"))
+        conn.execute(text("UPDATE usuarios SET rol = 'trabajador' WHERE rol = 'TRABAJADOR'"))
+        conn.execute(text("UPDATE usuarios SET rol = 'desarrollador' WHERE rol = 'DESARROLLADOR'"))
+        conn.commit()
+except Exception:
+    pass
+
 # ============= INICIALIZAR FastAPI =============
 
 app = FastAPI(
@@ -229,25 +237,6 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-class CorsPreflightMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        if request.method == "OPTIONS":
-            return Response(
-                status_code=200,
-                headers={
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "*",
-                    "Access-Control-Allow-Headers": "*",
-                    "Access-Control-Max-Age": "3600",
-                }
-            )
-        response = await call_next(request)
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-        return response
-
-app.add_middleware(CorsPreflightMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
