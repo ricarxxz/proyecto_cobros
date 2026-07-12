@@ -1164,88 +1164,75 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
     ).first()
     
     deuda_anterior = 0.0
-    monto_prestamo_real = prestamo.monto_prestado
-    es_refinanciacion = False
-    total_cuotas_nuevas = prestamo.numero_cuotas
     
     if prestamo_activo and prestamo_activo.total_deuda and prestamo_activo.total_deuda > 0:
         deuda_anterior = prestamo_activo.deuda_restante
         
-        if deuda_anterior >= prestamo.monto_prestado:
-            # Deuda mayor o igual: sumar al préstamo existente y recacular cuotas
-            interes = prestamo.monto_prestado * (prestamo.interes_porcentaje / 100)
-            nueva_deuda = prestamo.monto_prestado + interes
-            valor_cartulina = (prestamo.monto_prestado / 100000) * 5000
-            
-            total_deuda_final = round(deuda_anterior + nueva_deuda, 2)
-            valor_cuota = total_deuda_final / prestamo.numero_cuotas
-            
-            prestamo_activo.deuda_restante = total_deuda_final
-            prestamo_activo.total_deuda = round((prestamo_activo.total_deuda or 0.0) + nueva_deuda, 2)
-            prestamo_activo.monto_prestado = round((prestamo_activo.monto_prestado or 0.0) + prestamo.monto_prestado, 2)
-            prestamo_activo.valor_cartulina = round((prestamo_activo.valor_cartulina or 0.0) + valor_cartulina, 2)
-            
-            # Eliminar cuotas impagas existentes
-            cuotas_impagas = db.query(Cuota).filter(
-                Cuota.prestamo_id == prestamo_activo.id,
-                Cuota.pagada == False
-            ).all()
-            for c in cuotas_impagas:
-                db.delete(c)
-            
-            # Crear nuevas cuotas con el nuevo número
-            for i in range(1, prestamo.numero_cuotas + 1):
-                fecha_vencimiento = calcular_fecha_vencimiento(date.today(), i, prestamo.frecuencia)
-                cuota = Cuota(
-                    prestamo_id=prestamo_activo.id,
-                    numero_cuota=i,
-                    valor_cuota=round(valor_cuota, 2),
-                    fecha_vencimiento=fecha_vencimiento,
-                    valor_pendiente=round(valor_cuota, 2)
-                )
-                db.add(cuota)
-            db.commit()
-            
-            # Registrar cartulina
-            ingreso = db.query(IngresoDia).filter(IngresoDia.usuario_id == usuario_id, IngresoDia.fecha == date.today()).first()
-            if not ingreso:
-                ingreso = IngresoDia(usuario_id=usuario_id)
-                db.add(ingreso)
-            if ingreso.ingreso_cartulinas is None: ingreso.ingreso_cartulinas = 0.0
-            ingreso.ingreso_cartulinas += valor_cartulina
-            if ingreso.ingreso_cuotas is None: ingreso.ingreso_cuotas = 0.0
-            ingreso.total_ingresos = ingreso.ingreso_cuotas + ingreso.ingreso_cartulinas
-            db.commit()
-            
-            total_entregado = prestamo.monto_prestado - valor_cartulina
-            return {
-                "status": "success",
-                "prestamo_id": prestamo_activo.id,
-                "total_deuda": total_deuda_final,
-                "deuda_restante": total_deuda_final,
-                "valor_cartulina": valor_cartulina,
-                "monto_prestado": prestamo.monto_prestado,
-                "deuda_anterior": deuda_anterior,
-                "valor_entregado": prestamo.monto_prestado - valor_cartulina,
-                "total_entregado": total_entregado,
-                "valor_cuota": round(valor_cuota, 2),
-                "numero_cuotas": prestamo.numero_cuotas,
-                "es_suma": True,
-                "mensaje": f"Sumado ${prestamo.monto_prestado} a deuda existente"
-            }
+        interes = prestamo.monto_prestado * (prestamo.interes_porcentaje / 100)
+        nueva_deuda = prestamo.monto_prestado + interes
+        valor_cartulina = (prestamo.monto_prestado / 100000) * 5000
         
-        # Deuda menor: refinanciar — cancelar anterior y crear nuevo
-        porcentaje_pagado = 1 - (deuda_anterior / prestamo_activo.total_deuda)
-        if porcentaje_pagado < 0.7:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Debe pagar al menos el 70% antes de un nuevo préstamo. Lleva pagado el {round(porcentaje_pagado * 100)}%"
+        total_deuda_final = round(deuda_anterior + nueva_deuda, 2)
+        valor_cuota = total_deuda_final / prestamo.numero_cuotas
+        
+        prestamo_activo.deuda_restante = total_deuda_final
+        prestamo_activo.total_deuda = round((prestamo_activo.total_deuda or 0.0) + nueva_deuda, 2)
+        prestamo_activo.monto_prestado = round((prestamo_activo.monto_prestado or 0.0) + prestamo.monto_prestado, 2)
+        prestamo_activo.valor_cartulina = round((prestamo_activo.valor_cartulina or 0.0) + valor_cartulina, 2)
+        
+        # Eliminar cuotas impagas existentes
+        cuotas_impagas = db.query(Cuota).filter(
+            Cuota.prestamo_id == prestamo_activo.id,
+            Cuota.pagada == False
+        ).all()
+        for c in cuotas_impagas:
+            db.delete(c)
+        
+        # Crear nuevas cuotas con el nuevo número
+        for i in range(1, prestamo.numero_cuotas + 1):
+            fecha_vencimiento = calcular_fecha_vencimiento(date.today(), i, prestamo.frecuencia)
+            cuota = Cuota(
+                prestamo_id=prestamo_activo.id,
+                numero_cuota=i,
+                valor_cuota=round(valor_cuota, 2),
+                fecha_vencimiento=fecha_vencimiento,
+                valor_pendiente=round(valor_cuota, 2)
             )
-        prestamo_activo.pagado = True
-        prestamo_activo.fecha_finalizacion = datetime.utcnow()
-        es_refinanciacion = True
+            db.add(cuota)
+        db.commit()
+        
+        # Registrar cartulina
+        ingreso = db.query(IngresoDia).filter(IngresoDia.usuario_id == usuario_id, IngresoDia.fecha == date.today()).first()
+        if not ingreso:
+            ingreso = IngresoDia(usuario_id=usuario_id)
+            db.add(ingreso)
+        if ingreso.ingreso_cartulinas is None: ingreso.ingreso_cartulinas = 0.0
+        ingreso.ingreso_cartulinas += valor_cartulina
+        if ingreso.ingreso_cuotas is None: ingreso.ingreso_cuotas = 0.0
+        ingreso.total_ingresos = ingreso.ingreso_cuotas + ingreso.ingreso_cartulinas
+        db.commit()
+        
+        if prestamo.monto_prestado > deuda_anterior:
+            total_entregado = prestamo.monto_prestado - deuda_anterior - valor_cartulina
+        else:
+            total_entregado = prestamo.monto_prestado - valor_cartulina
+        
+        return {
+            "status": "success",
+            "prestamo_id": prestamo_activo.id,
+            "total_deuda": total_deuda_final,
+            "deuda_restante": total_deuda_final,
+            "valor_cartulina": valor_cartulina,
+            "monto_prestado": prestamo.monto_prestado,
+            "deuda_anterior": deuda_anterior,
+            "valor_entregado": prestamo.monto_prestado - valor_cartulina,
+            "total_entregado": total_entregado,
+            "valor_cuota": round(valor_cuota, 2),
+            "numero_cuotas": prestamo.numero_cuotas,
+            "mensaje": f"Préstamo unificado — deuda total ${total_deuda_final:,.0f}"
+        }
     
-    # Crear nuevo préstamo
+    # Sin deuda activa: crear nuevo préstamo normal
     interes = prestamo.monto_prestado * (prestamo.interes_porcentaje / 100)
     total_deuda = prestamo.monto_prestado + interes
     valor_cartulina = (prestamo.monto_prestado / 100000) * 5000
@@ -1288,8 +1275,7 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
     ingreso.total_ingresos = ingreso.ingreso_cuotas + ingreso.ingreso_cartulinas
     db.commit()
     
-    valor_entregado = prestamo.monto_prestado - valor_cartulina
-    total_entregado = prestamo.monto_prestado - (deuda_anterior if es_refinanciacion else 0) - valor_cartulina
+    total_entregado = prestamo.monto_prestado - valor_cartulina
     
     return {
         "status": "success",
@@ -1298,12 +1284,11 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
         "deuda_restante": total_deuda,
         "valor_cartulina": valor_cartulina,
         "monto_prestado": prestamo.monto_prestado,
-        "deuda_anterior": deuda_anterior if es_refinanciacion else 0,
-        "valor_entregado": valor_entregado,
+        "deuda_anterior": 0.0,
+        "valor_entregado": total_entregado,
         "total_entregado": total_entregado,
         "valor_cuota": valor_cuota,
         "numero_cuotas": prestamo.numero_cuotas,
-        "es_suma": False,
         "mensaje": f"Préstamo de ${prestamo.monto_prestado} creado para {cliente.nombres}"
     }
 

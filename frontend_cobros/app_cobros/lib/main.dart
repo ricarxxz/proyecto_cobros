@@ -2829,11 +2829,11 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
                 children: [
                   Text('Cliente: $_nombreCliente'),
                   const SizedBox(height: 8),
-                  Text('Valor prestado: ${formatearDinero(montoPrestado)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  if (data['es_suma'] == true) ...[
-                    Text('Deuda anterior: \$${formatearDinero(deudaAnterior)} (se suma)', style: const TextStyle(color: Colors.orange)),
+                  Text('Valor solicitado: ${formatearDinero(montoPrestado)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  if (deudaAnterior > 0 && totalEntregado < valorEntregado) ...[
+                    Text('Deuda anterior descontada: -${formatearDinero(deudaAnterior)}', style: const TextStyle(color: Colors.red)),
                   ] else if (deudaAnterior > 0) ...[
-                    Text('Deuda anterior cancelada: -${formatearDinero(deudaAnterior)}', style: const TextStyle(color: Colors.red)),
+                    Text('Deuda anterior: ${formatearDinero(deudaAnterior)} (se suma)', style: const TextStyle(color: Colors.orange)),
                   ],
                   Text('Cartulina: -${formatearDinero(cartulina)}', style: TextStyle(color: Colors.grey.shade600)),
                   const Divider(),
