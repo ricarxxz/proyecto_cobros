@@ -49,7 +49,7 @@ class Usuario(Base):
     nombre = Column(String, index=True)
     email = Column(String, unique=True, index=True)
     password_hash = Column(String)
-    rol = Column(Enum(RolUsuario, native_enum=False, create_constraint=False), default=RolUsuario.TRABAJADOR)
+    rol = Column(String, default=RolUsuario.TRABAJADOR.value)
     activo = Column(Boolean, default=True)
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     creado_por = Column(Integer, nullable=True)  # Admin que registró este usuario (solo para trabajadores)
@@ -217,16 +217,15 @@ try:
 except Exception:
     pass
 
-# Migración: cambiar columna rol de enum nativo a VARCHAR y normalizar valores
+# Migración: normalizar valores de rol a minúscula
 try:
     with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE usuarios ALTER COLUMN rol TYPE VARCHAR USING rol::text"))
         conn.execute(text("UPDATE usuarios SET rol = 'administrador' WHERE LOWER(rol) = 'administrador'"))
         conn.execute(text("UPDATE usuarios SET rol = 'trabajador' WHERE LOWER(rol) = 'trabajador'"))
         conn.execute(text("UPDATE usuarios SET rol = 'desarrollador' WHERE LOWER(rol) = 'desarrollador'"))
         conn.commit()
 except Exception as e:
-    print(f"Migración rol VARCHAR: {e}")
+    print(f"Migración normalizar rol: {e}")
 
 # ============= INICIALIZAR FastAPI =============
 
