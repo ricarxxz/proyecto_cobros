@@ -55,7 +55,19 @@ double parseMonto(String text) {
 void main() => runApp(
   MaterialApp(
     home: LoginScreen(),
-    theme: ThemeData(primarySwatch: Colors.blue),
+    theme: ThemeData(
+      primarySwatch: Colors.blue,
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          textStyle: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          textStyle: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+      ),
+    ),
     debugShowCheckedModeBanner: false,
   ),
 );
