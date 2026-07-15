@@ -9,7 +9,7 @@ from datetime import datetime, date, timedelta
 from passlib.context import CryptContext
 import enum
 import os
-from typing import Optional
+from typing import Optional, List
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -197,6 +197,23 @@ class GestionCuotaVencidaRequest(BaseModel):
 class GastoDiaRegistro(BaseModel):
     concepto: str
     valor: float
+
+class CuotaAnteriorDetalle(BaseModel):
+    numero_cuota: int
+    valor_cuota: float
+    pagada: bool = False
+    valor_pagado: float = 0.0
+    numero_pagos: int = 1
+
+class ClienteAnteriorRegistro(BaseModel):
+    nombres: str
+    cedula: str
+    telefono: str
+    dia_cobro: str = "lunes"
+    monto_prestado: float
+    interes_porcentaje: float = 20.0
+    frecuencia: str = "semanal"
+    cuotas: List[CuotaAnteriorDetalle]
 
 # Crear las tablas (solo create, sin drop)
 Base.metadata.create_all(bind=engine)
@@ -1032,6 +1049,114 @@ def registrar_cliente_con_prestamo(datos: ClientePrestamoRegistro, admin_id: int
         "valor_cuota": valor_cuota,
         "numero_cuotas": datos.numero_cuotas,
         "mensaje": f"Cliente {datos.nombres} registrado con préstamo de ${datos.monto_prestado}"
+    }
+
+@app.post("/api/admin/registrar-cliente-anterior")
+def registrar_cliente_anterior(datos: ClienteAnteriorRegistro, admin_id: int, db: Session = Depends(get_db)):
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores pueden registrar clientes anteriores")
+
+    db_cliente = db.query(Cliente).filter(Cliente.cedula == datos.cedula).first()
+    if db_cliente and db_cliente.activo:
+        raise HTTPException(status_code=400, detail="Cliente con esta cédula ya existe")
+
+    nuevo_cliente = Cliente(
+        nombres=datos.nombres,
+        cedula=datos.cedula,
+        telefono=datos.telefono,
+        usuario_id=admin_id,
+        trabajador_id=None,
+        dia_cobro=datos.dia_cobro
+    )
+    db.add(nuevo_cliente)
+    db.commit()
+    db.refresh(nuevo_cliente)
+
+    interes = datos.monto_prestado * (datos.interes_porcentaje / 100)
+    total_deuda = datos.monto_prestado + interes
+    valor_cartulina = (datos.monto_prestado / 100000) * 5000
+
+    nuevo_prestamo = Prestamo(
+        cliente_id=nuevo_cliente.id,
+        usuario_id=admin_id,
+        monto_prestado=datos.monto_prestado,
+        total_deuda=total_deuda,
+        deuda_restante=total_deuda,
+        interes_porcentaje=datos.interes_porcentaje,
+        valor_cartulina=valor_cartulina,
+        frecuencia=datos.frecuencia,
+        pagado=True,
+        fecha_finalizacion=datetime.utcnow()
+    )
+    db.add(nuevo_prestamo)
+    db.commit()
+    db.refresh(nuevo_prestamo)
+
+    todas_pagadas = all(c.pagada for c in datos.cuotas)
+    if not todas_pagadas:
+        nuevo_prestamo.pagado = False
+        nuevo_prestamo.fecha_finalizacion = None
+
+    total_pagado = 0.0
+    for c in datos.cuotas:
+        fecha_venc = calcular_fecha_vencimiento(date.today(), c.numero_cuota, FrecuenciaCuota(datos.frecuencia))
+        cuota_db = Cuota(
+            prestamo_id=nuevo_prestamo.id,
+            numero_cuota=c.numero_cuota,
+            valor_cuota=c.valor_cuota,
+            fecha_vencimiento=fecha_venc,
+            pagada=c.pagada,
+            valor_pagado=c.valor_pagado,
+            valor_pendiente=max(0, c.valor_cuota - c.valor_pagado)
+        )
+        db.add(cuota_db)
+        db.commit()
+        db.refresh(cuota_db)
+
+        if c.pagada and c.valor_pagado > 0:
+            num_pagos = max(1, c.numero_pagos)
+            pago_individual = round(c.valor_pagado / num_pagos, 2)
+            for _ in range(num_pagos):
+                pago_db = PagoCuota(
+                    cuota_id=cuota_db.id,
+                    prestamo_id=nuevo_prestamo.id,
+                    cantidad_pagada=pago_individual,
+                    usuario_id=admin_id
+                )
+                db.add(pago_db)
+                total_pagado += pago_individual
+        elif not c.pagada and c.valor_pagado > 0:
+            pago_db = PagoCuota(
+                cuota_id=cuota_db.id,
+                prestamo_id=nuevo_prestamo.id,
+                cantidad_pagada=c.valor_pagado,
+                usuario_id=admin_id
+            )
+            db.add(pago_db)
+            total_pagado += c.valor_pagado
+
+    db.commit()
+
+    if total_pagado > 0:
+        nuevo_prestamo.deuda_restante = max(0, round(total_deuda - total_pagado, 2))
+        if nuevo_prestamo.deuda_restante == 0:
+            nuevo_prestamo.pagado = True
+            nuevo_prestamo.fecha_finalizacion = datetime.utcnow()
+        db.commit()
+
+    db.refresh(nuevo_prestamo)
+
+    return {
+        "status": "success",
+        "cliente_id": nuevo_cliente.id,
+        "prestamo_id": nuevo_prestamo.id,
+        "total_deuda": total_deuda,
+        "total_pagado": round(total_pagado, 2),
+        "deuda_restante": nuevo_prestamo.deuda_restante,
+        "valor_cartulina": valor_cartulina,
+        "cuotas_creadas": len(datos.cuotas),
+        "mensaje": f"Cliente anterior {datos.nombres} registrado con {len(datos.cuotas)} cuotas"
     }
 
 @app.get("/api/clientes/buscar")

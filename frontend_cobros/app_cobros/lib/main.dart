@@ -801,7 +801,7 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const RegistroCobrosScreen(),
+                    builder: (_) => RegistroCobrosScreen(clienteId: cliente['id']),
                   ),
                 );
               },
@@ -1042,6 +1042,19 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                     context,
                     MaterialPageRoute(
                       builder: (_) => const GestionClientesScreen(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.book, color: Colors.brown),
+                title: const Text('Cliente Anterior (Libro)'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const RegistroClienteAnteriorScreen(),
                     ),
                   );
                 },
@@ -2731,6 +2744,446 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
   }
 }
 
+// ============= REGISTRO DE CLIENTE ANTERIOR (DESDE LIBRO) =============
+class RegistroClienteAnteriorScreen extends StatefulWidget {
+  const RegistroClienteAnteriorScreen({super.key});
+
+  @override
+  _RegistroClienteAnteriorScreenState createState() =>
+      _RegistroClienteAnteriorScreenState();
+}
+
+class _RegistroClienteAnteriorScreenState
+    extends State<RegistroClienteAnteriorScreen> {
+  final _nombresController = TextEditingController();
+  final _cedulaController = TextEditingController();
+  final _telefonoController = TextEditingController();
+  final _montoController = TextEditingController();
+  final _cuotasCountController = TextEditingController();
+  String _diaCobro = 'lunes';
+  String _frecuencia = 'semanal';
+  double _interes = 20.0;
+  bool _isLoading = false;
+
+  List<_CuotaAnteriorState> _cuotas = [];
+
+  @override
+  void dispose() {
+    _nombresController.dispose();
+    _cedulaController.dispose();
+    _telefonoController.dispose();
+    _montoController.dispose();
+    _cuotasCountController.dispose();
+    for (var c in _cuotas) {
+      c.valorController.dispose();
+      c.pagadoController.dispose();
+      c.pagosController.dispose();
+    }
+    super.dispose();
+  }
+
+  void _generarCuotas() {
+    final count = int.tryParse(_cuotasCountController.text) ?? 0;
+    if (count <= 0) return;
+    final monto = parseMonto(_montoController.text);
+    final interes = monto * (_interes / 100);
+    final totalDeuda = monto + interes;
+    final valorBase = totalDeuda / count;
+
+    setState(() {
+      for (var c in _cuotas) {
+        c.valorController.dispose();
+        c.pagadoController.dispose();
+        c.pagosController.dispose();
+      }
+      _cuotas = List.generate(count, (i) {
+        return _CuotaAnteriorState(
+          numero: i + 1,
+          valorBase: valorBase,
+        );
+      });
+    });
+  }
+
+  Future<void> _registrar() async {
+    if (_nombresController.text.isEmpty ||
+        _cedulaController.text.isEmpty ||
+        _telefonoController.text.isEmpty ||
+        _montoController.text.isEmpty ||
+        _cuotasCountController.text.isEmpty ||
+        _cuotas.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Complete todos los campos")),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final cuotasData = _cuotas.map((c) => {
+        'numero_cuota': c.numero,
+        'valor_cuota': parseMonto(c.valorController.text),
+        'pagada': c.pagada,
+        'valor_pagado': c.pagada ? parseMonto(c.pagadoController.text) : 0.0,
+        'numero_pagos': c.pagada ? (int.tryParse(c.pagosController.text) ?? 1) : 0,
+      }).toList();
+
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/admin/registrar-cliente-anterior?admin_id=${SessionGlobal.usuarioId}',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'nombres': _nombresController.text,
+          'cedula': _cedulaController.text,
+          'telefono': _telefonoController.text,
+          'dia_cobro': _diaCobro,
+          'monto_prestado': parseMonto(_montoController.text),
+          'interes_porcentaje': _interes,
+          'frecuencia': _frecuencia,
+          'cuotas': cuotasData,
+        }),
+      );
+
+      if (response.statusCode == 200 && mounted) {
+        final d = jsonDecode(response.body);
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Cliente Anterior Registrado'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Cliente: ${_nombresController.text}'),
+                const SizedBox(height: 8),
+                Text('Total deuda: ${formatearDinero(d['total_deuda'])}',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text('Total pagado: ${formatearDinero(d['total_pagado'])}',
+                    style: const TextStyle(color: Colors.green)),
+                Text('Deuda restante: ${formatearDinero(d['deuda_restante'])}',
+                    style: TextStyle(
+                        color: d['deuda_restante'] > 0
+                            ? Colors.red
+                            : Colors.green)),
+                Text('Cuotas creadas: ${d['cuotas_creadas']}'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Aceptar')),
+            ],
+          ),
+        );
+        _nombresController.clear();
+        _cedulaController.clear();
+        _telefonoController.clear();
+        _montoController.clear();
+        _cuotasCountController.clear();
+        for (var c in _cuotas) {
+          c.valorController.dispose();
+          c.pagadoController.dispose();
+          c.pagosController.dispose();
+        }
+        setState(() => _cuotas = []);
+      } else if (mounted) {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error['detail'] ?? 'Error al registrar')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e")),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final monto = parseMonto(_montoController.text);
+    final interesCalc = monto * (_interes / 100);
+    final totalDeuda = monto + interesCalc;
+    final cuotasCount = int.tryParse(_cuotasCountController.text) ?? 0;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Cliente Anterior (Libro)"),
+        backgroundColor: Colors.brown,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Datos del Cliente",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _nombresController,
+              decoration: const InputDecoration(
+                labelText: "Nombres y Apellidos",
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.person),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _cedulaController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: "Cédula",
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.badge),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _telefonoController,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: "Teléfono",
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.phone),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _diaCobro,
+              decoration: const InputDecoration(
+                labelText: "Día de cobro",
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.calendar_today),
+              ),
+              items: ['lunes', 'martes', 'miércoles', 'jueves', 'viernes',
+                      'sábado', 'domingo']
+                  .map((dia) => DropdownMenuItem(
+                        value: dia,
+                        child: Text(dia[0].toUpperCase() + dia.substring(1)),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _diaCobro = v ?? 'lunes'),
+            ),
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 10),
+            const Text(
+              "Datos del Préstamo",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _montoController,
+              keyboardType: TextInputType.number,
+              onChanged: (_) {
+                _onMontoChanged(_montoController);
+                setState(() {});
+              },
+              decoration: const InputDecoration(
+                labelText: "Monto prestado",
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.attach_money),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text("Interés: ${_interes.toStringAsFixed(1)}%"),
+            Slider(
+              value: _interes,
+              min: 0,
+              max: 50,
+              divisions: 50,
+              label: "${_interes.toStringAsFixed(1)}%",
+              onChanged: (v) => setState(() => _interes = v),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _frecuencia,
+              decoration: const InputDecoration(
+                labelText: "Frecuencia",
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.schedule),
+              ),
+              items: ['semanal', 'quincenal', 'mensual']
+                  .map((f) => DropdownMenuItem(
+                        value: f,
+                        child: Text(f[0].toUpperCase() + f.substring(1)),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _frecuencia = v ?? 'semanal'),
+            ),
+            if (monto > 0) ...[
+              const SizedBox(height: 8),
+              Text(
+                "Total deuda (con interés): ${formatearDinero(totalDeuda)}",
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 10),
+            const Text(
+              "Configurar Cuotas",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _cuotasCountController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: "Número de cuotas",
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.numbers),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: _generarCuotas,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.brown,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
+                  ),
+                  child: const Text("Generar"),
+                ),
+              ],
+            ),
+            if (_cuotas.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                "Total deuda: ${formatearDinero(totalDeuda)} | "
+                "Valor base por cuota: ${formatearDinero(cuotasCount > 0 ? totalDeuda / cuotasCount : 0)}",
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              ..._cuotas.asMap().entries.map((entry) {
+                final i = entry.key;
+                final c = entry.value;
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              "Cuota #${c.numero}",
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                            const Spacer(),
+                            Checkbox(
+                              value: c.pagada,
+                              onChanged: (v) {
+                                setState(() => c.pagada = v ?? false);
+                                if (!c.pagada) {
+                                  c.pagadoController.clear();
+                                  c.pagosController.text = '1';
+                                }
+                              },
+                            ),
+                            Text(
+                              c.pagada ? "Pagada" : "Pendiente",
+                              style: TextStyle(
+                                color: c.pagada ? Colors.green : Colors.red,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: c.valorController,
+                          keyboardType: TextInputType.number,
+                          onChanged: (_) => _onMontoChanged(c.valorController),
+                          decoration: const InputDecoration(
+                            labelText: "Valor de la cuota",
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                        if (c.pagada) ...[
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: c.pagadoController,
+                            keyboardType: TextInputType.number,
+                            onChanged: (_) => _onMontoChanged(c.pagadoController),
+                            decoration: const InputDecoration(
+                              labelText: "¿Cuánto pagó?",
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: c.pagosController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: "¿Cuántos pagos hizo?",
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ],
+            const SizedBox(height: 30),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _registrar,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.brown,
+                ),
+                child: _isLoading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text("Registrar Cliente Anterior",
+                        style: TextStyle(fontSize: 16)),
+              ),
+            ),
+            const SizedBox(height: 30),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CuotaAnteriorState {
+  final int numero;
+  final TextEditingController valorController;
+  final TextEditingController pagadoController;
+  final TextEditingController pagosController;
+  bool pagada;
+
+  _CuotaAnteriorState({
+    required this.numero,
+    required double valorBase,
+  })  : valorController = TextEditingController(
+          text: valorBase > 0 ? valorBase.toStringAsFixed(0) : ''),
+        pagadoController = TextEditingController(),
+        pagosController = TextEditingController(text: '1'),
+        pagada = false;
+}
+
 // ============= NUEVO PRÉSTAMO =============
 class NuevoPrestamoScreen extends StatefulWidget {
   const NuevoPrestamoScreen({super.key});
@@ -3065,7 +3518,8 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
 
 // ============= REGISTRO DE COBROS =============
 class RegistroCobrosScreen extends StatefulWidget {
-  const RegistroCobrosScreen({super.key});
+  final int? clienteId;
+  const RegistroCobrosScreen({super.key, this.clienteId});
 
   @override
   _RegistroCobrosScreenState createState() => _RegistroCobrosScreenState();
@@ -3089,6 +3543,20 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
     super.initState();
     _verificarBloqueo();
     _busquedaController.addListener(_onSearchChanged);
+    if (widget.clienteId != null) {
+      _cargarClientePorId(widget.clienteId!);
+    }
+  }
+
+  Future<void> _cargarClientePorId(int clienteId) async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _clienteId = clienteId;
+        _nombreCliente = 'Cargando...';
+      });
+    }
+    await _seleccionarCliente({'id': clienteId, 'nombres': 'Cargando...'});
   }
 
   @override
@@ -3461,6 +3929,7 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
               TextField(
                 controller: _pagoController,
                 keyboardType: TextInputType.number,
+                onChanged: (_) => _onMontoChanged(_pagoController),
                 decoration: const InputDecoration(
                   labelText: "Valor a Cobrar",
                   border: OutlineInputBorder(),
@@ -3524,7 +3993,7 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final montoPagado = double.parse(_pagoController.text);
+      final montoPagado = parseMonto(_pagoController.text);
       final cuotaId = int.parse(_cuotasPendientes[0]['id'].toString());
 
       final response = await http.post(
@@ -4022,6 +4491,7 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
             TextField(
               controller: _valorController,
               keyboardType: TextInputType.number,
+              onChanged: (_) => _onMontoChanged(_valorController),
               decoration: const InputDecoration(labelText: 'Valor'),
             ),
           ],
@@ -4070,7 +4540,7 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
           'https://proyecto-cobros.onrender.com/api/gastos/registrar?usuario_id=${SessionGlobal.usuarioId}',
         ),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'concepto': concepto, 'valor': double.parse(valor)}),
+        body: jsonEncode({'concepto': concepto, 'valor': parseMonto(valor)}),
       );
 
       if (response.statusCode == 200) {
