@@ -801,7 +801,7 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => RegistroCobrosScreen(clienteId: cliente['id']),
+                    builder: (_) => RegistroCobrosScreen(clienteId: cliente['id'], clienteNombre: cliente['nombres']),
                   ),
                 );
               },
@@ -1221,101 +1221,80 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
             ),
           // Filters
           if (_esAdmin) ...[
-            const SizedBox(height: 6),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 children: [
-                  ..._diasSemana.map((dia) {
-                    final seleccionado = _filtroDia == dia;
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 3),
-                      child: ChoiceChip(
-                        label: Text(dia[0].toUpperCase() + dia.substring(1)),
-                        selected: seleccionado,
-                        onSelected: (val) {
-                          setState(() {
-                            _filtroDia = val ? dia : null;
-                          });
-                          _cargarClientesPorDia();
-                        },
-                        selectedColor: Colors.blue,
-                        labelStyle: TextStyle(
-                          color: seleccionado ? Colors.white : Colors.black,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
+                  Expanded(
+                    child: DropdownButtonFormField<String?>(
+                      value: _filtroDia,
+                      decoration: const InputDecoration(
+                        labelText: 'Día',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                       ),
-                    );
-                  }),
+                      items: [
+                        const DropdownMenuItem(value: null, child: Text('Todos')),
+                        ..._diasSemana.map((dia) => DropdownMenuItem(
+                          value: dia,
+                          child: Text(dia[0].toUpperCase() + dia.substring(1)),
+                        )),
+                      ],
+                      onChanged: (v) {
+                        setState(() => _filtroDia = v);
+                        _cargarClientesPorDia();
+                      },
+                    ),
+                  ),
                   const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Semanal', style: TextStyle(fontSize: 12)),
-                    selected: _filtroFrecuencia == 'semanal',
-                    onSelected: (val) {
-                      setState(() {
-                        _filtroFrecuencia = val ? 'semanal' : null;
-                      });
-                      _cargarClientesPorDia();
-                    },
-                    selectedColor: Colors.green,
-                  ),
-                  const SizedBox(width: 4),
-                  ChoiceChip(
-                    label: const Text('Quincenal', style: TextStyle(fontSize: 12)),
-                    selected: _filtroFrecuencia == 'quincenal',
-                    onSelected: (val) {
-                      setState(() {
-                        _filtroFrecuencia = val ? 'quincenal' : null;
-                      });
-                      _cargarClientesPorDia();
-                    },
-                    selectedColor: Colors.green,
-                  ),
-                  const SizedBox(width: 4),
-                  ChoiceChip(
-                    label: const Text('Mensual', style: TextStyle(fontSize: 12)),
-                    selected: _filtroFrecuencia == 'mensual',
-                    onSelected: (val) {
-                      setState(() {
-                        _filtroFrecuencia = val ? 'mensual' : null;
-                      });
-                      _cargarClientesPorDia();
-                    },
-                    selectedColor: Colors.green,
+                  Expanded(
+                    child: DropdownButtonFormField<String?>(
+                      value: _filtroFrecuencia,
+                      decoration: const InputDecoration(
+                        labelText: 'Frecuencia',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: null, child: Text('Todas')),
+                        DropdownMenuItem(value: 'semanal', child: Text('Semanal')),
+                        DropdownMenuItem(value: 'quincenal', child: Text('Quincenal')),
+                        DropdownMenuItem(value: 'mensual', child: Text('Mensual')),
+                      ],
+                      onChanged: (v) {
+                        setState(() => _filtroFrecuencia = v);
+                        _cargarClientesPorDia();
+                      },
+                    ),
                   ),
                 ],
               ),
             ),
           ],
           const SizedBox(height: 8),
-          // Worker day chips
+          // Worker day selector
           if (!_esAdmin)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: _diasSemana.map((dia) {
-                  final seleccionado = _diaSeleccionado == dia;
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                    child: ChoiceChip(
-                      label: Text(dia[0].toUpperCase() + dia.substring(1)),
-                      selected: seleccionado,
-                      onSelected: (val) {
-                        setState(() {
-                          _diaSeleccionado = dia;
-                        });
-                        _cargarClientesPorDia();
-                      },
-                      selectedColor: Colors.blue,
-                      labelStyle: TextStyle(
-                        color: seleccionado ? Colors.white : Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  );
-                }).toList(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: DropdownButtonFormField<String>(
+                value: _diaSeleccionado,
+                decoration: const InputDecoration(
+                  labelText: 'Día',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                ),
+                items: _diasSemana.map((dia) => DropdownMenuItem(
+                  value: dia,
+                  child: Text(dia[0].toUpperCase() + dia.substring(1)),
+                )).toList(),
+                onChanged: (v) {
+                  setState(() => _diaSeleccionado = v ?? 'lunes');
+                  _cargarClientesPorDia();
+                },
               ),
             ),
           const SizedBox(height: 8),
@@ -2643,11 +2622,29 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
               const SizedBox(height: 20),
               const Divider(),
               const SizedBox(height: 10),
-              const Text(
-                "Datos del Préstamo",
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.attach_money, color: Colors.orange, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      "Datos del Préstamo",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               TextField(
                 controller: _montoController,
                 keyboardType: TextInputType.number,
@@ -2922,11 +2919,29 @@ class _RegistroClienteAnteriorScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Datos del Cliente",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.person, color: Colors.blue, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    "Datos del Cliente",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             TextField(
               controller: _nombresController,
               decoration: const InputDecoration(
@@ -2975,11 +2990,29 @@ class _RegistroClienteAnteriorScreenState
             const SizedBox(height: 20),
             const Divider(),
             const SizedBox(height: 10),
-            const Text(
-              "Datos del Préstamo",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.attach_money, color: Colors.orange, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    "Datos del Préstamo",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             TextField(
               controller: _montoController,
               keyboardType: TextInputType.number,
@@ -3029,11 +3062,29 @@ class _RegistroClienteAnteriorScreenState
             const SizedBox(height: 20),
             const Divider(),
             const SizedBox(height: 10),
-            const Text(
-              "Configurar Cuotas",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.purple.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.purple.shade200),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.calendar_view_week, color: Colors.purple, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    "Configurar Cuotas",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.purple,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
@@ -3519,7 +3570,8 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
 // ============= REGISTRO DE COBROS =============
 class RegistroCobrosScreen extends StatefulWidget {
   final int? clienteId;
-  const RegistroCobrosScreen({super.key, this.clienteId});
+  final String? clienteNombre;
+  const RegistroCobrosScreen({super.key, this.clienteId, this.clienteNombre});
 
   @override
   _RegistroCobrosScreenState createState() => _RegistroCobrosScreenState();
@@ -3549,14 +3601,15 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
   }
 
   Future<void> _cargarClientePorId(int clienteId) async {
+    final nombre = widget.clienteNombre ?? 'Cliente';
     if (mounted) {
       setState(() {
         _isLoading = true;
         _clienteId = clienteId;
-        _nombreCliente = 'Cargando...';
+        _nombreCliente = nombre;
       });
     }
-    await _seleccionarCliente({'id': clienteId, 'nombres': 'Cargando...'});
+    await _seleccionarCliente({'id': clienteId, 'nombres': nombre});
   }
 
   @override
