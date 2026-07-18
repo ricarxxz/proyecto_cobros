@@ -204,6 +204,7 @@ class CuotaAnteriorDetalle(BaseModel):
     pagada: bool = False
     valor_pagado: float = 0.0
     numero_pagos: int = 1
+    fecha_vencimiento: Optional[date] = None
 
 class ClienteAnteriorRegistro(BaseModel):
     nombres: str
@@ -1100,7 +1101,7 @@ def registrar_cliente_anterior(datos: ClienteAnteriorRegistro, admin_id: int, db
 
     total_pagado = 0.0
     for c in datos.cuotas:
-        fecha_venc = calcular_fecha_vencimiento(date.today(), c.numero_cuota, FrecuenciaCuota(datos.frecuencia))
+        fecha_venc = c.fecha_vencimiento if c.fecha_vencimiento else calcular_fecha_vencimiento(date.today(), c.numero_cuota, FrecuenciaCuota(datos.frecuencia))
         cuota_db = Cuota(
             prestamo_id=nuevo_prestamo.id,
             numero_cuota=c.numero_cuota,
@@ -1700,35 +1701,54 @@ def registrar_pago(pago: PagoCuotaRegistro, usuario_id: int, db: Session = Depen
     )
     db.add(pago_obj)
     
-    # Actualizar cuota
-    cuota.valor_pagado += pago.cantidad_pagada
-    cuota.valor_pendiente = max(0, cuota.valor_cuota - cuota.valor_pagado)
-    
-    if cuota.valor_pendiente == 0:
+    cantidad = pago.cantidad_pagada
+
+    # Actualizar cuota actual
+    cuota.valor_pagado += cantidad
+
+    if cantidad > cuota.valor_cuota:
+        exceso = cantidad - cuota.valor_cuota
+        cuota.valor_pagado = cuota.valor_cuota
+        cuota.valor_pendiente = 0
         cuota.pagada = True
+
+        siguiente_cuota = db.query(Cuota).filter(
+            Cuota.prestamo_id == prestamo.id,
+            Cuota.pagada == False,
+            Cuota.numero_cuota > cuota.numero_cuota
+        ).order_by(Cuota.numero_cuota).first()
+
+        if siguiente_cuota:
+            siguiente_cuota.valor_pendiente = max(0, round(siguiente_cuota.valor_pendiente - exceso, 2))
+            if siguiente_cuota.valor_pendiente == 0:
+                siguiente_cuota.pagada = True
+    elif cantidad < cuota.valor_cuota:
+        falta = round(cuota.valor_cuota - cantidad, 2)
+        cuota.valor_pendiente = 0
+        cuota.pagada = True
+
+        siguiente_cuota = db.query(Cuota).filter(
+            Cuota.prestamo_id == prestamo.id,
+            Cuota.pagada == False,
+            Cuota.numero_cuota > cuota.numero_cuota
+        ).order_by(Cuota.numero_cuota).first()
+
+        if siguiente_cuota:
+            siguiente_cuota.valor_cuota = round(siguiente_cuota.valor_cuota + falta, 2)
+            siguiente_cuota.valor_pendiente = round(siguiente_cuota.valor_pendiente + falta, 2)
+        else:
+            cuota.pagada = False
+            cuota.valor_pendiente = falta
     else:
-        # Pago parcial: eliminar la cuota y redistribuir entre las restantes
-        db.delete(cuota)
-        db.flush()  # Asegurar que el delete se refleje en la siguiente consulta
-    
+        cuota.valor_pendiente = 0
+        cuota.pagada = True
+
     # Actualizar deuda del préstamo
-    prestamo.deuda_restante = max(0, prestamo.deuda_restante - pago.cantidad_pagada)
-    
+    prestamo.deuda_restante = max(0, round(prestamo.deuda_restante - cantidad, 2))
+
     if prestamo.deuda_restante == 0:
         prestamo.pagado = True
         prestamo.fecha_finalizacion = datetime.utcnow()
-    
-    # Redistribuir valor de las cuotas restantes
-    cuotas_restantes = db.query(Cuota).filter(
-        Cuota.prestamo_id == prestamo.id,
-        Cuota.pagada == False
-    ).order_by(Cuota.numero_cuota).all()
-    
-    if cuotas_restantes and prestamo.deuda_restante > 0:
-        nuevo_valor_cuota = prestamo.deuda_restante / len(cuotas_restantes)
-        for cr in cuotas_restantes:
-            cr.valor_cuota = round(nuevo_valor_cuota, 2)
-            cr.valor_pendiente = max(0, round(nuevo_valor_cuota - cr.valor_pagado, 2))
     
     # Registrar ingreso del día
     ingreso = db.query(IngresoDia).filter(
