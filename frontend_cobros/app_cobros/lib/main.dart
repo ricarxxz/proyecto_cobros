@@ -2815,6 +2815,34 @@ class _RegistroClienteAnteriorScreenState
     });
   }
 
+  void _detectarFrecuencia() {
+    final fechas = _cuotas
+        .where((c) => c.pagada && c.fechaPago != null)
+        .map((c) => c.fechaPago!)
+        .toList()
+      ..sort();
+    if (fechas.length < 2) return;
+
+    double totalDiff = 0;
+    for (int i = 1; i < fechas.length; i++) {
+      totalDiff += fechas[i].difference(fechas[i - 1]).inDays.abs();
+    }
+    final avgGap = totalDiff / (fechas.length - 1);
+
+    String nuevaFrecuencia;
+    if (avgGap <= 10) {
+      nuevaFrecuencia = 'semanal';
+    } else if (avgGap <= 20) {
+      nuevaFrecuencia = 'quincenal';
+    } else {
+      nuevaFrecuencia = 'mensual';
+    }
+
+    if (_frecuencia != nuevaFrecuencia) {
+      setState(() => _frecuencia = nuevaFrecuencia);
+    }
+  }
+
   Future<void> _registrar() async {
     if (_nombresController.text.isEmpty ||
         _cedulaController.text.isEmpty ||
@@ -2837,6 +2865,8 @@ class _RegistroClienteAnteriorScreenState
         'pagada': c.pagada,
         'valor_pagado': c.pagada ? parseMonto(c.pagadoController.text) : 0.0,
         'numero_pagos': c.pagada ? (int.tryParse(c.pagosController.text) ?? 1) : 0,
+        if (c.fechaPago != null)
+          'fecha_pago': c.fechaPago!.toIso8601String().split('T')[0],
       }).toList();
 
       final response = await http.post(
@@ -3052,10 +3082,14 @@ class _RegistroClienteAnteriorScreenState
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: _frecuencia,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: "Frecuencia",
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.schedule),
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.schedule),
+                helperText: _cuotas.any((c) => c.pagada && c.fechaPago != null)
+                    ? 'Detectada automáticamente de las fechas'
+                    : null,
+                helperStyle: const TextStyle(fontSize: 11, color: Colors.green),
               ),
               items: ['semanal', 'quincenal', 'mensual']
                   .map((f) => DropdownMenuItem(
@@ -3201,6 +3235,30 @@ class _RegistroClienteAnteriorScreenState
                               isDense: true,
                             ),
                           ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            icon: Icon(Icons.calendar_today, size: 18),
+                            label: Text(
+                              c.fechaPago != null
+                                  ? 'Pagado: ${c.fechaPago!.day}/${c.fechaPago!.month}/${c.fechaPago!.year}'
+                                  : 'Seleccionar fecha de pago',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                            onPressed: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: c.fechaPago ?? DateTime.now(),
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime.now(),
+                              );
+                              if (picked != null) {
+                                setState(() {
+                                  c.fechaPago = picked;
+                                });
+                                _detectarFrecuencia();
+                              }
+                            },
+                          ),
                         ],
                       ],
                     ),
@@ -3237,6 +3295,7 @@ class _CuotaAnteriorState {
   final TextEditingController pagadoController;
   final TextEditingController pagosController;
   bool pagada;
+  DateTime? fechaPago;
 
   _CuotaAnteriorState({
     required this.numero,

@@ -205,6 +205,7 @@ class CuotaAnteriorDetalle(BaseModel):
     valor_pagado: float = 0.0
     numero_pagos: int = 1
     fecha_vencimiento: Optional[date] = None
+    fecha_pago: Optional[date] = None
 
 class ClienteAnteriorRegistro(BaseModel):
     nombres: str
@@ -1115,6 +1116,8 @@ def registrar_cliente_anterior(datos: ClienteAnteriorRegistro, admin_id: int, db
         db.commit()
         db.refresh(cuota_db)
 
+        fecha_pago_dt = datetime.combine(c.fecha_pago, datetime.min.time()) if c.fecha_pago else datetime.utcnow()
+
         if c.pagada and c.valor_pagado > 0:
             num_pagos = max(1, c.numero_pagos)
             pago_individual = round(c.valor_pagado / num_pagos, 2)
@@ -1123,7 +1126,8 @@ def registrar_cliente_anterior(datos: ClienteAnteriorRegistro, admin_id: int, db
                     cuota_id=cuota_db.id,
                     prestamo_id=nuevo_prestamo.id,
                     cantidad_pagada=pago_individual,
-                    usuario_id=admin_id
+                    usuario_id=admin_id,
+                    fecha_pago=fecha_pago_dt
                 )
                 db.add(pago_db)
                 total_pagado += pago_individual
@@ -1132,7 +1136,8 @@ def registrar_cliente_anterior(datos: ClienteAnteriorRegistro, admin_id: int, db
                 cuota_id=cuota_db.id,
                 prestamo_id=nuevo_prestamo.id,
                 cantidad_pagada=c.valor_pagado,
-                usuario_id=admin_id
+                usuario_id=admin_id,
+                fecha_pago=fecha_pago_dt
             )
             db.add(pago_db)
             total_pagado += c.valor_pagado
@@ -1700,51 +1705,64 @@ def registrar_pago(pago: PagoCuotaRegistro, usuario_id: int, db: Session = Depen
         usuario_id=usuario_id
     )
     db.add(pago_obj)
-    
+
     cantidad = pago.cantidad_pagada
 
-    # Actualizar cuota actual
-    cuota.valor_pagado += cantidad
+    cuota.valor_pagado = round(cuota.valor_pagado + cantidad, 2)
+    restante = round(cuota.valor_cuota - cuota.valor_pagado, 2)
 
-    if cantidad > cuota.valor_cuota:
-        exceso = cantidad - cuota.valor_cuota
+    if restante <= 0:
+        # Pagó completo o con exceso
+        exceso = abs(restante)
         cuota.valor_pagado = cuota.valor_cuota
         cuota.valor_pendiente = 0
         cuota.pagada = True
 
-        siguiente_cuota = db.query(Cuota).filter(
-            Cuota.prestamo_id == prestamo.id,
-            Cuota.pagada == False,
-            Cuota.numero_cuota > cuota.numero_cuota
-        ).order_by(Cuota.numero_cuota).first()
+        if exceso > 0:
+            siguientes = db.query(Cuota).filter(
+                Cuota.prestamo_id == prestamo.id,
+                Cuota.numero_cuota > cuota.numero_cuota,
+                Cuota.pagada == False
+            ).order_by(Cuota.numero_cuota).all()
 
-        if siguiente_cuota:
-            siguiente_cuota.valor_pendiente = max(0, round(siguiente_cuota.valor_pendiente - exceso, 2))
-            if siguiente_cuota.valor_pendiente == 0:
-                siguiente_cuota.pagada = True
-    elif cantidad < cuota.valor_cuota:
-        falta = round(cuota.valor_cuota - cantidad, 2)
-        cuota.valor_pendiente = 0
-        cuota.pagada = True
-
-        siguiente_cuota = db.query(Cuota).filter(
-            Cuota.prestamo_id == prestamo.id,
-            Cuota.pagada == False,
-            Cuota.numero_cuota > cuota.numero_cuota
-        ).order_by(Cuota.numero_cuota).first()
-
-        if siguiente_cuota:
-            siguiente_cuota.valor_cuota = round(siguiente_cuota.valor_cuota + falta, 2)
-            siguiente_cuota.valor_pendiente = round(siguiente_cuota.valor_pendiente + falta, 2)
-        else:
-            cuota.pagada = False
-            cuota.valor_pendiente = falta
+            for sig in siguientes:
+                if exceso <= 0:
+                    break
+                necesita = round(sig.valor_cuota - sig.valor_pagado, 2)
+                if necesita <= 0:
+                    continue
+                if exceso >= necesita:
+                    sig.valor_pagado = round(sig.valor_pagado + necesita, 2)
+                    sig.valor_pendiente = 0
+                    sig.pagada = True
+                    exceso = round(exceso - necesita, 2)
+                else:
+                    sig.valor_pagado = round(sig.valor_pagado + exceso, 2)
+                    sig.valor_pendiente = round(sig.valor_cuota - sig.valor_pagado, 2)
+                    exceso = 0
     else:
-        cuota.valor_pendiente = 0
-        cuota.pagada = True
+        # Pagó menos de lo que vale la cuota
+        falta = restante
+        cuota.valor_pendiente = falta
 
-    # Actualizar deuda del préstamo
-    prestamo.deuda_restante = max(0, round(prestamo.deuda_restante - cantidad, 2))
+        siguiente = db.query(Cuota).filter(
+            Cuota.prestamo_id == prestamo.id,
+            Cuota.numero_cuota > cuota.numero_cuota,
+            Cuota.pagada == False
+        ).order_by(Cuota.numero_cuota).first()
+
+        if siguiente:
+            cuota.valor_pendiente = 0
+            cuota.pagada = True
+            siguiente.valor_cuota = round(siguiente.valor_cuota + falta, 2)
+            siguiente.valor_pendiente = round(siguiente.valor_pendiente + falta, 2)
+
+    # Recalcular deuda real desde las cuotas pendientes
+    total_pendiente = db.query(func.coalesce(func.sum(Cuota.valor_pendiente), 0)).filter(
+        Cuota.prestamo_id == prestamo.id,
+        Cuota.pagada == False
+    ).scalar()
+    prestamo.deuda_restante = round(float(total_pendiente), 2)
 
     if prestamo.deuda_restante == 0:
         prestamo.pagado = True
