@@ -1770,11 +1770,35 @@ class _GestionTrabajadoresScreenState extends State<GestionTrabajadoresScreen> {
     }
   }
 
-  Future<void> _eliminarTrabajador(int id) async {
+  Future<void> _confirmarEliminar(Map<String, dynamic> trabajador) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar Trabajador'),
+        content: Text(
+          '¿Estás seguro de desactivar a "${trabajador['nombre']}"?\n\n'
+          'El trabajador dejará de tener acceso al sistema. '
+          'Esta acción puede revertirse desde la edición.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
     try {
       final response = await http.post(
         Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/admin/eliminar-trabajador?admin_id=${SessionGlobal.usuarioId}&trabajador_id=$id',
+          'https://proyecto-cobros.onrender.com/api/admin/eliminar-trabajador?admin_id=${SessionGlobal.usuarioId}&trabajador_id=${trabajador['id']}',
         ),
       );
       if (response.statusCode == 200) {
@@ -1898,10 +1922,59 @@ class _GestionTrabajadoresScreenState extends State<GestionTrabajadoresScreen> {
               itemCount: _trabajadores.length,
               itemBuilder: (context, index) {
                 final trabajador = _trabajadores[index];
+                final activo = trabajador['activo'] ?? true;
                 return Card(
+                  color: activo ? null : Colors.grey.shade100,
                   child: ListTile(
-                    title: Text(trabajador['nombre'] ?? ''),
-                    subtitle: Text('Email: ${trabajador['email'] ?? ''}'),
+                    leading: CircleAvatar(
+                      backgroundColor: activo ? Colors.green : Colors.grey,
+                      child: Icon(
+                        activo ? Icons.person : Icons.person_off,
+                        color: Colors.white,
+                      ),
+                    ),
+                    title: Text(
+                      trabajador['nombre'] ?? '',
+                      style: TextStyle(
+                        color: activo ? null : Colors.grey,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Email: ${trabajador['email'] ?? ''}'),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: activo ? Colors.green.shade50 : Colors.red.shade50,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                activo ? 'Activo' : 'Inactivo',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: activo ? Colors.green.shade800 : Colors.red.shade800,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '${trabajador['dias_asignados']?.length ?? 0} días',
+                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                            if ((trabajador['clientes_asignados'] ?? 0) > 0)
+                              Text(
+                                ' • ${trabajador['clientes_asignados']} clientes',
+                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1910,9 +1983,17 @@ class _GestionTrabajadoresScreenState extends State<GestionTrabajadoresScreen> {
                           onPressed: () => _editarTrabajadorDialog(trabajador),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () =>
-                              _eliminarTrabajador(trabajador['id']),
+                          icon: Icon(
+                            activo ? Icons.delete : Icons.restore,
+                            color: activo ? Colors.red : Colors.orange,
+                          ),
+                          onPressed: () {
+                            if (activo) {
+                              _confirmarEliminar(trabajador);
+                            } else {
+                              _editarTrabajadorDialog(trabajador);
+                            }
+                          },
                         ),
                       ],
                     ),
