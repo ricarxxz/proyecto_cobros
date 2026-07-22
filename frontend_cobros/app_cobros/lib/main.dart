@@ -1119,20 +1119,6 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.add_card, color: Colors.orange),
-                title: const Text('Nuevo Préstamo'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  if (await verificarBloqueo(context)) return;
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const NuevoPrestamoScreen(),
-                    ),
-                  );
-                },
-              ),
-              ListTile(
                 leading: const Icon(Icons.search, color: Colors.purple),
                 title: const Text('Buscar Cliente'),
                 onTap: () {
