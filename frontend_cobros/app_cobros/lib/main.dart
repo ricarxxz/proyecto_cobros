@@ -59,7 +59,6 @@ void main() => runApp(
       primarySwatch: Colors.blue,
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: Colors.white,
           textStyle: const TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
