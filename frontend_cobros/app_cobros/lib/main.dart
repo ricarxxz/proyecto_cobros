@@ -4179,13 +4179,33 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
           );
         }
 
-        // Limpiar campos
-        _busquedaController.clear();
+        // Recargar datos del cliente para ver cambios en la siguiente cuota
         _pagoController.clear();
-        setState(() {
-          _clienteInfo = null;
-          _cuotasPendientes = [];
-        });
+        if (_clienteId != null) {
+          final r = await http.get(Uri.parse(
+            'https://proyecto-cobros.onrender.com/api/reportes/cliente/$_clienteId',
+          ));
+          if (r.statusCode == 200 && mounted) {
+            final reportData = jsonDecode(r.body);
+            final historial = reportData['historial_prestamos'] as List;
+            List<dynamic> cuotas = [];
+            for (var prestamo in historial) {
+              for (var cuota in prestamo['cuotas']) {
+                if (!(cuota['pagada'] ?? false)) {
+                  cuotas.add({...cuota, 'prestamo_id': prestamo['prestamo_id']});
+                }
+              }
+            }
+            cuotas.sort((a, b) => DateTime.parse(a['vencimiento'].toString())
+                .compareTo(DateTime.parse(b['vencimiento'].toString())));
+            if (mounted) {
+              setState(() {
+                _clienteInfo = reportData;
+                _cuotasPendientes = cuotas;
+              });
+            }
+          }
+        }
       } else {
         final error = jsonDecode(response.body);
         var mensajeError = 'Error al registrar pago';
