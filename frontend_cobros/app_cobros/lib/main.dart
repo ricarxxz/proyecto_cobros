@@ -2711,14 +2711,14 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
                 ),
                 child: const Row(
                   children: [
-                    Icon(Icons.attach_money, color: Colors.orange, size: 20),
+                    Icon(Icons.attach_money, color: Colors.black54, size: 20),
                     SizedBox(width: 8),
                     Text(
                       "Datos del Préstamo",
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: Colors.orange,
+                        color: Colors.black,
                       ),
                     ),
                   ],
@@ -3038,14 +3038,14 @@ class _RegistroClienteAnteriorScreenState
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.person, color: Colors.blue, size: 20),
+                  Icon(Icons.person, color: Colors.black54, size: 20),
                   SizedBox(width: 8),
                   Text(
                     "Datos del Cliente",
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.blue,
+                      color: Colors.black,
                     ),
                   ),
                 ],
@@ -3109,14 +3109,14 @@ class _RegistroClienteAnteriorScreenState
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.attach_money, color: Colors.orange, size: 20),
-                  SizedBox(width: 8),
-                  Text(
-                    "Datos del Préstamo",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange,
+Icon(Icons.attach_money, color: Colors.black54, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      "Datos del Préstamo",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
                     ),
                   ),
                 ],
@@ -3185,14 +3185,14 @@ class _RegistroClienteAnteriorScreenState
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.calendar_view_week, color: Colors.purple, size: 20),
+                  Icon(Icons.calendar_view_week, color: Colors.black54, size: 20),
                   SizedBox(width: 8),
                   Text(
                     "Configurar Cuotas",
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.purple,
+                      color: Colors.black,
                     ),
                   ),
                 ],
