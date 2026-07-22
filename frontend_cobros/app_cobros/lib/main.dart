@@ -4152,60 +4152,16 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
         final result = jsonDecode(response.body);
         final montoCuota = _cuotasPendientes[0]['valor'];
         final cuotaPagada = result['cuota_pagada'] ?? false;
-        final deudaRestante = result['deuda_restante'] ?? 0;
 
-        if (mounted) {
-          await showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Pago Registrado'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Cliente: $_nombreCliente'),
-                  const SizedBox(height: 8),
-                  Text('Monto pagado: ${formatearDinero(montoPagado)}'),
-                  Text('Valor cuota: ${formatearDinero(montoCuota)}'),
-                  const SizedBox(height: 8),
-                  Text(
-                    cuotaPagada
-                        ? 'Cuota #${_cuotasPendientes[0]['numero']} pagada completamente'
-                        : 'Pago parcial registrado',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: cuotaPagada ? Colors.green : Colors.orange,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Deuda restante total: ${formatearDinero(deudaRestante)}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.red,
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Aceptar'),
-                ),
-              ],
-            ),
-          );
-        }
-
-        // Recargar datos del cliente para ver cambios en la siguiente cuota
+        // Recargar datos del cliente para obtener la deuda total real
         _pagoController.clear();
+        Map<String, dynamic>? reportData;
         if (_clienteId != null) {
           final r = await http.get(Uri.parse(
             'https://proyecto-cobros.onrender.com/api/reportes/cliente/$_clienteId',
           ));
-          if (r.statusCode == 200 && mounted) {
-            final reportData = jsonDecode(r.body);
+          if (r.statusCode == 200) {
+            reportData = jsonDecode(r.body) as Map<String, dynamic>;
             final historial = reportData['historial_prestamos'] as List;
             List<dynamic> cuotas = [];
             for (var prestamo in historial) {
@@ -4224,6 +4180,52 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
               });
             }
           }
+        }
+
+        final deudaTotal = reportData?['resumen']?['deuda_total'] ?? result['deuda_restante'] ?? 0;
+
+        if (mounted) {
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Pago Registrado'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Cliente: $_nombreCliente'),
+                  const SizedBox(height: 8),
+                  Text('Monto pagado: ${formatearDinero(montoPagado)}'),
+                  Text('Valor cuota: ${formatearDinero(montoCuota)}'),
+                  const SizedBox(height: 8),
+                  Text(
+                    cuotaPagada
+                        ? 'Cuota #${_cuotasPendientes.isNotEmpty ? _cuotasPendientes[0]['numero'] : ''} pagada completamente'
+                        : 'Pago parcial registrado',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: cuotaPagada ? Colors.green : Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Deuda restante total: ${formatearDinero(deudaTotal)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.red,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Aceptar'),
+                ),
+              ],
+            ),
+          );
         }
       } else {
         final error = jsonDecode(response.body);
