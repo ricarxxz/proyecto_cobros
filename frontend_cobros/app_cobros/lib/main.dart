@@ -3992,8 +3992,27 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         Text(
-                          'Valor: ${formatearDinero(_cuotasPendientes[0]['valor'])}',
+                          'Valor cuota: ${formatearDinero(_cuotasPendientes[0]['valor'])}',
                           style: const TextStyle(fontSize: 14),
+                        ),
+                        if ((_cuotasPendientes[0]['valor_pagado'] ?? 0) > 0)
+                          Text(
+                            'Pagado: ${formatearDinero(_cuotasPendientes[0]['valor_pagado'])}',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Colors.green,
+                            ),
+                          ),
+                        Text(
+                          'Pendiente: ${formatearDinero(_cuotasPendientes[0]['pendiente'])}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: (_cuotasPendientes[0]['pendiente'] ?? 0) >
+                                    (_cuotasPendientes[0]['valor'] ?? 0)
+                                ? Colors.red
+                                : Colors.orange.shade800,
+                          ),
                         ),
                         Text(
                           'Vence: ${_cuotasPendientes[0]['vencimiento']}',
