@@ -5296,11 +5296,14 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
   List _admins = [];
   bool _isLoading = true;
 
+  final List<String> _todosDias = [
+    'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo',
+  ];
+
   @override
   void initState() {
     super.initState();
     _cargarUsuarios();
-    _cargarDias();
   }
 
   Future<void> _cargarUsuarios() async {
@@ -5312,10 +5315,49 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
         ),
       );
       if (response.statusCode == 200) {
-        setState(() => _admins = jsonDecode(response.body));
+        final admins = jsonDecode(response.body) as List;
+        for (var admin in admins) {
+          admin['_dias'] = <String>[];
+          admin['_loadingDias'] = false;
+        }
+        setState(() => _admins = admins);
       }
     } catch (_) {}
     setState(() => _isLoading = false);
+  }
+
+  Future<void> _cargarDiasAdmin(dynamic admin) async {
+    admin['_loadingDias'] = true;
+    setState(() {});
+    try {
+      final response = await http.get(Uri.parse(
+        'https://proyecto-cobros.onrender.com/api/desarrollador/dias-registro?usuario_id=${SessionGlobal.usuarioId}&admin_id=${admin['id']}',
+      ));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        admin['_dias'] = List<String>.from(data['dias'] ?? []);
+      }
+    } catch (_) {}
+    admin['_loadingDias'] = false;
+    setState(() {});
+  }
+
+  Future<void> _toggleDiaAdmin(dynamic admin, String dia) async {
+    final dias = List<String>.from(admin['_dias'] ?? []);
+    final updated = dias.contains(dia)
+        ? dias.where((d) => d != dia).toList()
+        : [...dias, dia];
+    admin['_dias'] = updated;
+    setState(() {});
+    try {
+      await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/desarrollador/dias-registro?usuario_id=${SessionGlobal.usuarioId}',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'admin_id': admin['id'], 'dias': updated}),
+      );
+    } catch (_) {}
   }
 
   Future<void> _desactivar(int userId, String nombre) async {
@@ -5352,166 +5394,111 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
     }
   }
 
-  final List<String> _todosDias = [
-    'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo',
-  ];
-  List<String> _diasConfig = [];
-  bool _loadingDias = true;
-
-  Future<void> _cargarDias() async {
-    setState(() => _loadingDias = true);
-    try {
-      final response = await http.get(Uri.parse(
-        'https://proyecto-cobros.onrender.com/api/desarrollador/dias-registro?usuario_id=${SessionGlobal.usuarioId}',
-      ));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() => _diasConfig = List<String>.from(data['dias'] ?? []));
-      }
-    } catch (_) {}
-    setState(() => _loadingDias = false);
-  }
-
-  Future<void> _toggleDia(String dia) async {
-    final updated = _diasConfig.contains(dia)
-        ? _diasConfig.where((d) => d != dia).toList()
-        : [..._diasConfig, dia];
-    setState(() => _diasConfig = updated);
-    try {
-      await http.post(
-        Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/desarrollador/dias-registro?usuario_id=${SessionGlobal.usuarioId}',
-        ),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'dias': updated}),
-      );
-    } catch (_) {}
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Panel Desarrollador'), backgroundColor: Colors.red),
       body: RefreshIndicator(
-        onRefresh: () async {
-          await _cargarUsuarios();
-          await _cargarDias();
-        },
-        child: ListView(
-          children: [
-            const SizedBox(height: 8),
-            Card(
-              margin: const EdgeInsets.symmetric(horizontal: 8),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
+        onRefresh: _cargarUsuarios,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView.builder(
+                itemCount: _admins.length,
+                itemBuilder: (_, i) {
+                  final admin = _admins[i];
+                  final workers = admin['trabajadores'] as List;
+                  return Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: ExpansionTile(
+                      leading: Icon(
+                        admin['activo'] ? Icons.check_circle : Icons.cancel,
+                        color: admin['activo'] ? Colors.green : Colors.red,
+                      ),
+                      title: Text(admin['nombre'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text('${admin['email']} — Clientes: ${admin['clientes_count']}'),
+                      onExpansionChanged: (expanded) {
+                        if (expanded) _cargarDiasAdmin(admin);
+                      },
                       children: [
-                        Icon(Icons.calendar_month, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'Días disponibles para registrar clientes',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        _buildUserActions(admin['id'], admin['nombre'], admin['email'], admin['activo']),
+                        const Divider(),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Días para registrar clientes:',
+                                style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                              ),
+                              const SizedBox(height: 8),
+                              if (admin['_loadingDias'])
+                                const Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              else
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: _todosDias.map((dia) {
+                                    final selected = (admin['_dias'] as List).contains(dia);
+                                    return FilterChip(
+                                      label: Text(dia[0].toUpperCase() + dia.substring(1), style: const TextStyle(fontSize: 12)),
+                                      selected: selected,
+                                      selectedColor: Colors.green.shade100,
+                                      checkmarkColor: Colors.green,
+                                      visualDensity: VisualDensity.compact,
+                                      onSelected: (_) => _toggleDiaAdmin(admin, dia),
+                                    );
+                                  }).toList(),
+                                ),
+                              if (!admin['_loadingDias'] && (admin['_dias'] as List).isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    'Todos los días disponibles',
+                                    style: TextStyle(fontSize: 11, color: Colors.orange, fontStyle: FontStyle.italic),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
+                        const Divider(),
+                        if (workers.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Text('Sin trabajadores', style: TextStyle(color: Colors.grey)),
+                          )
+                        else
+                          ...workers.map((w) => ListTile(
+                                leading: Icon(
+                                  w['activo'] ? Icons.person : Icons.person_off,
+                                  color: w['activo'] ? Colors.blue : Colors.red,
+                                ),
+                                title: Text(w['nombre']),
+                                subtitle: Text(w['email']),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: Icon(w['activo'] ? Icons.block : Icons.check, color: Colors.orange),
+                                      onPressed: () => w['activo'] ? _desactivar(w['id'], w['nombre']) : _activar(w['id'], w['nombre']),
+                                      tooltip: w['activo'] ? 'Desactivar' : 'Activar',
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_forever, color: Colors.red),
+                                      onPressed: () => _eliminar(w['id'], w['nombre']),
+                                      tooltip: 'Eliminar',
+                                    ),
+                                  ],
+                                ),
+                              )),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Selecciona los días en que los admins pueden registrar clientes',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 12),
-                    if (_loadingDias)
-                      const Center(child: Padding(
-                        padding: EdgeInsets.all(8),
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ))
-                    else
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _todosDias.map((dia) {
-                          final selected = _diasConfig.contains(dia);
-                          return FilterChip(
-                            label: Text(dia[0].toUpperCase() + dia.substring(1)),
-                            selected: selected,
-                            selectedColor: Colors.green.shade100,
-                            checkmarkColor: Colors.green,
-                            onSelected: (_) => _toggleDia(dia),
-                          );
-                        }).toList(),
-                      ),
-                    if (!_loadingDias && _diasConfig.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 4),
-                        child: Text(
-                          'Todos los días están disponibles',
-                          style: TextStyle(fontSize: 12, color: Colors.orange, fontStyle: FontStyle.italic),
-                        ),
-                      ),
-                  ],
-                ),
+                  );
+                },
               ),
-            ),
-            const SizedBox(height: 8),
-            if (_isLoading)
-              const Center(child: Padding(
-                padding: EdgeInsets.all(40),
-                child: CircularProgressIndicator(),
-              ))
-            else
-              ...List.generate(_admins.length, (i) {
-                final admin = _admins[i];
-                final workers = admin['trabajadores'] as List;
-                return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: ExpansionTile(
-                    leading: Icon(
-                      admin['activo'] ? Icons.check_circle : Icons.cancel,
-                      color: admin['activo'] ? Colors.green : Colors.red,
-                    ),
-                    title: Text(admin['nombre'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('${admin['email']} — Clientes: ${admin['clientes_count']}'),
-                    children: [
-                      _buildUserActions(admin['id'], admin['nombre'], admin['email'], admin['activo']),
-                      const Divider(),
-                      if (workers.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(8),
-                          child: Text('Sin trabajadores', style: TextStyle(color: Colors.grey)),
-                        )
-                      else
-                        ...workers.map((w) => ListTile(
-                              leading: Icon(
-                                w['activo'] ? Icons.person : Icons.person_off,
-                                color: w['activo'] ? Colors.blue : Colors.red,
-                              ),
-                              title: Text(w['nombre']),
-                              subtitle: Text(w['email']),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: Icon(w['activo'] ? Icons.block : Icons.check, color: Colors.orange),
-                                    onPressed: () => w['activo'] ? _desactivar(w['id'], w['nombre']) : _activar(w['id'], w['nombre']),
-                                    tooltip: w['activo'] ? 'Desactivar' : 'Activar',
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_forever, color: Colors.red),
-                                    onPressed: () => _eliminar(w['id'], w['nombre']),
-                                    tooltip: 'Eliminar',
-                                  ),
-                                ],
-                              ),
-                            )),
-                    ],
-                  ),
-                );
-              }),
-          ],
-        ),
       ),
     );
   }

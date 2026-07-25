@@ -142,10 +142,11 @@ class CierreDia(Base):
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     cerrado = Column(Boolean, default=True)
 
-class DiaRegistro(Base):
-    __tablename__ = "dias_registro"
+class AdminDiaRegistro(Base):
+    __tablename__ = "admin_dias_registro"
     id = Column(Integer, primary_key=True, index=True)
-    dia = Column(String, unique=True, index=True)
+    admin_id = Column(Integer, index=True)
+    dia = Column(String)
 
 # ============= ESQUEMAS PYDANTIC =============
 
@@ -1181,11 +1182,10 @@ def verificar_dia_disponible(usuario_id: int, db: Session = Depends(get_db)):
         "thursday": "jueves", "friday": "viernes", "saturday": "sábado", "sunday": "domingo"
     }
     today_spanish = dias_map.get(date.today().strftime("%A").lower(), date.today().strftime("%A").lower())
-    total = db.query(DiaRegistro).count()
-    if total == 0:
+    dias_admin = [d[0] for d in db.query(AdminDiaRegistro.dia).filter(AdminDiaRegistro.admin_id == usuario_id).all()]
+    if len(dias_admin) == 0:
         return {"disponible": True, "dia": today_spanish}
-    configurado = db.query(DiaRegistro).filter(DiaRegistro.dia == today_spanish).first() is not None
-    return {"disponible": configurado, "dia": today_spanish}
+    return {"disponible": today_spanish in dias_admin, "dia": today_spanish}
 
 @app.get("/api/clientes/buscar")
 def buscar_cliente(cedula: str = None, nombre: str = None, usuario_id: int = None, db: Session = Depends(get_db)):
@@ -1690,11 +1690,12 @@ def desarrollador_eliminar(usuario_id: int, target_id: int, db: Session = Depend
     return {"status": "success", "mensaje": f"Usuario {target.nombre} eliminado"}
 
 @app.get("/api/desarrollador/dias-registro")
-def desarrollador_dias_registro(usuario_id: int, db: Session = Depends(get_db)):
+def desarrollador_dias_registro(usuario_id: int, admin_id: int = None, db: Session = Depends(get_db)):
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not usuario or usuario.rol != RolUsuario.DESARROLLADOR:
         raise HTTPException(status_code=403, detail="Solo desarrolladores")
-    dias = [d[0] for d in db.query(DiaRegistro.dia).all()]
+    target_id = admin_id if admin_id else usuario_id
+    dias = [d[0] for d in db.query(AdminDiaRegistro.dia).filter(AdminDiaRegistro.admin_id == target_id).all()]
     return {"dias": dias}
 
 @app.post("/api/desarrollador/dias-registro")
@@ -1702,9 +1703,12 @@ def desarrollador_actualizar_dias_registro(datos: dict, usuario_id: int, db: Ses
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not usuario or usuario.rol != RolUsuario.DESARROLLADOR:
         raise HTTPException(status_code=403, detail="Solo desarrolladores")
-    db.query(DiaRegistro).delete()
+    admin_id = datos.get("admin_id")
+    if not admin_id:
+        raise HTTPException(status_code=400, detail="admin_id requerido")
+    db.query(AdminDiaRegistro).filter(AdminDiaRegistro.admin_id == admin_id).delete()
     for dia in datos.get("dias", []):
-        db.add(DiaRegistro(dia=dia))
+        db.add(AdminDiaRegistro(admin_id=admin_id, dia=dia))
     db.commit()
     return {"status": "success", "dias": datos.get("dias", [])}
 
