@@ -118,6 +118,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _obscurePassword = true;
 
   Future<void> _login() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
@@ -191,11 +192,19 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 15),
               TextField(
                 controller: _passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
                   labelText: "Contraseña",
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.lock),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    ),
+                    onPressed: () {
+                      setState(() => _obscurePassword = !_obscurePassword);
+                    },
+                  ),
                 ),
               ),
               const SizedBox(height: 30),
@@ -752,6 +761,7 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
 
       // Count remaining periods grouped by frequency
       String infoPeriodos = '';
+      String infoFechaPrestamo = '';
       for (var p in historial) {
         if (!(p['pagado'] ?? false)) {
           final freq = p['frecuencia'] ?? 'semanal';
@@ -760,6 +770,17 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
           ).length;
           if (cuotas > 0) {
             infoPeriodos += '• ${cuotas} ${freq}(es) restantes\n';
+          }
+          // Show fecha_prestamo of the active loan
+          if (p['fecha_prestamo'] != null) {
+            final fp = p['fecha_prestamo'].toString();
+            try {
+              final dt = DateTime.parse(fp);
+              infoFechaPrestamo =
+                  'Préstamo del: ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+            } catch (_) {
+              infoFechaPrestamo = 'Préstamo del: $fp';
+            }
           }
         }
       }
@@ -793,6 +814,16 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 Text(infoPeriodos),
+              ],
+              if (infoFechaPrestamo.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  infoFechaPrestamo,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w500,
+                    color: Colors.blueGrey,
+                  ),
+                ),
               ],
               if (cuotasPendientes.isNotEmpty) ...[
                 const Divider(),
@@ -2529,6 +2560,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
   double _interes = 20.0;
   bool _isLoading = false;
   bool _bloqueado = false;
+  bool _diaDisponible = true;
 
   @override
   void initState() {
@@ -2538,8 +2570,20 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
 
   Future<void> _verificarBloqueo() async {
     final bloqueado = await CierreDiaService.isBlockedNow();
+    bool disponible = true;
+    try {
+      final resp = await http.get(Uri.parse(
+        'https://proyecto-cobros.onrender.com/api/clientes/verificar-dia?usuario_id=${SessionGlobal.usuarioId}',
+      ));
+      if (resp.statusCode == 200) {
+        disponible = jsonDecode(resp.body)['disponible'] ?? true;
+      }
+    } catch (_) {}
     if (mounted) {
-      setState(() => _bloqueado = bloqueado);
+      setState(() {
+        _bloqueado = bloqueado;
+        _diaDisponible = disponible;
+      });
     }
   }
 
@@ -2782,6 +2826,22 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
                 },
               ),
               const SizedBox(height: 30),
+              if (!_diaDisponible)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red[100],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'Día no disponible — Hoy no se pueden registrar clientes.',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               if (_bloqueado)
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -2802,7 +2862,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: (_isLoading || _bloqueado)
+                  onPressed: (_isLoading || _bloqueado || !_diaDisponible)
                       ? null
                       : _registrarCliente,
                   style: ElevatedButton.styleFrom(
@@ -2840,9 +2900,28 @@ class _RegistroClienteAnteriorScreenState
   String _diaCobro = 'lunes';
   String _frecuencia = 'semanal';
   double _interes = 20.0;
+  DateTime _fechaPrestamo = DateTime.now();
   bool _isLoading = false;
+  bool _diaDisponible = true;
 
   List<_CuotaAnteriorState> _cuotas = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _verificarDia();
+  }
+
+  Future<void> _verificarDia() async {
+    try {
+      final resp = await http.get(Uri.parse(
+        'https://proyecto-cobros.onrender.com/api/clientes/verificar-dia?usuario_id=${SessionGlobal.usuarioId}',
+      ));
+      if (resp.statusCode == 200 && mounted) {
+        setState(() => _diaDisponible = jsonDecode(resp.body)['disponible'] ?? true);
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -2949,6 +3028,7 @@ class _RegistroClienteAnteriorScreenState
           'monto_prestado': parseMonto(_montoController.text),
           'interes_porcentaje': _interes,
           'frecuencia': _frecuencia,
+          'fecha_prestamo': _fechaPrestamo.toIso8601String(),
           'cuotas': cuotasData,
         }),
       );
@@ -3166,6 +3246,25 @@ Icon(Icons.attach_money, color: Colors.black54, size: 20),
                   .toList(),
               onChanged: (v) => setState(() => _frecuencia = v ?? 'semanal'),
             ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.calendar_month, size: 18),
+              label: Text(
+                'Fecha del préstamo: ${_fechaPrestamo.day.toString().padLeft(2, '0')}/${_fechaPrestamo.month.toString().padLeft(2, '0')}/${_fechaPrestamo.year}',
+                style: const TextStyle(fontSize: 13),
+              ),
+              onPressed: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _fechaPrestamo,
+                  firstDate: DateTime(2000),
+                  lastDate: DateTime.now(),
+                );
+                if (picked != null) {
+                  setState(() => _fechaPrestamo = picked);
+                }
+              },
+            ),
             if (monto > 0) ...[
               const SizedBox(height: 8),
               Text(
@@ -3334,11 +3433,27 @@ Icon(Icons.attach_money, color: Colors.black54, size: 20),
               }),
             ],
             const SizedBox(height: 30),
+            if (!_diaDisponible)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red[100],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Día no disponible — Hoy no se pueden registrar clientes.',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
             SizedBox(
               width: double.infinity,
               height: 50,
               child: ElevatedButton(
-                onPressed: _isLoading ? null : _registrar,
+                onPressed: (_isLoading || !_diaDisponible) ? null : _registrar,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.brown,
                 ),
@@ -5185,6 +5300,7 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
   void initState() {
     super.initState();
     _cargarUsuarios();
+    _cargarDias();
   }
 
   Future<void> _cargarUsuarios() async {
@@ -5236,66 +5352,167 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
     }
   }
 
+  final List<String> _todosDias = [
+    'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo',
+  ];
+  List<String> _diasConfig = [];
+  bool _loadingDias = true;
+
+  Future<void> _cargarDias() async {
+    setState(() => _loadingDias = true);
+    try {
+      final response = await http.get(Uri.parse(
+        'https://proyecto-cobros.onrender.com/api/desarrollador/dias-registro?usuario_id=${SessionGlobal.usuarioId}',
+      ));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() => _diasConfig = List<String>.from(data['dias'] ?? []));
+      }
+    } catch (_) {}
+    setState(() => _loadingDias = false);
+  }
+
+  Future<void> _toggleDia(String dia) async {
+    final updated = _diasConfig.contains(dia)
+        ? _diasConfig.where((d) => d != dia).toList()
+        : [..._diasConfig, dia];
+    setState(() => _diasConfig = updated);
+    try {
+      await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/desarrollador/dias-registro?usuario_id=${SessionGlobal.usuarioId}',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'dias': updated}),
+      );
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Panel Desarrollador'), backgroundColor: Colors.red),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _cargarUsuarios,
-              child: ListView.builder(
-                itemCount: _admins.length,
-                itemBuilder: (_, i) {
-                  final admin = _admins[i];
-                  final workers = admin['trabajadores'] as List;
-                  return Card(
-                    margin: const EdgeInsets.all(8),
-                    child: ExpansionTile(
-                      leading: Icon(
-                        admin['activo'] ? Icons.check_circle : Icons.cancel,
-                        color: admin['activo'] ? Colors.green : Colors.red,
-                      ),
-                      title: Text(admin['nombre'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text('${admin['email']} — Clientes: ${admin['clientes_count']}'),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await _cargarUsuarios();
+          await _cargarDias();
+        },
+        child: ListView(
+          children: [
+            const SizedBox(height: 8),
+            Card(
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
                       children: [
-                        _buildUserActions(admin['id'], admin['nombre'], admin['email'], admin['activo']),
-                        const Divider(),
-                        if (workers.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.all(8),
-                            child: Text('Sin trabajadores', style: TextStyle(color: Colors.grey)),
-                          )
-                        else
-                          ...workers.map((w) => ListTile(
-                                leading: Icon(
-                                  w['activo'] ? Icons.person : Icons.person_off,
-                                  color: w['activo'] ? Colors.blue : Colors.red,
-                                ),
-                                title: Text(w['nombre']),
-                                subtitle: Text(w['email']),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: Icon(w['activo'] ? Icons.block : Icons.check, color: Colors.orange),
-                                      onPressed: () => w['activo'] ? _desactivar(w['id'], w['nombre']) : _activar(w['id'], w['nombre']),
-                                      tooltip: w['activo'] ? 'Desactivar' : 'Activar',
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_forever, color: Colors.red),
-                                      onPressed: () => _eliminar(w['id'], w['nombre']),
-                                      tooltip: 'Eliminar',
-                                    ),
-                                  ],
-                                ),
-                              )),
+                        Icon(Icons.calendar_month, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Días disponibles para registrar clientes',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
                       ],
                     ),
-                  );
-                },
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Selecciona los días en que los admins pueden registrar clientes',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 12),
+                    if (_loadingDias)
+                      const Center(child: Padding(
+                        padding: EdgeInsets.all(8),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ))
+                    else
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _todosDias.map((dia) {
+                          final selected = _diasConfig.contains(dia);
+                          return FilterChip(
+                            label: Text(dia[0].toUpperCase() + dia.substring(1)),
+                            selected: selected,
+                            selectedColor: Colors.green.shade100,
+                            checkmarkColor: Colors.green,
+                            onSelected: (_) => _toggleDia(dia),
+                          );
+                        }).toList(),
+                      ),
+                    if (!_loadingDias && _diasConfig.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Todos los días están disponibles',
+                          style: TextStyle(fontSize: 12, color: Colors.orange, fontStyle: FontStyle.italic),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
+            const SizedBox(height: 8),
+            if (_isLoading)
+              const Center(child: Padding(
+                padding: EdgeInsets.all(40),
+                child: CircularProgressIndicator(),
+              ))
+            else
+              ...List.generate(_admins.length, (i) {
+                final admin = _admins[i];
+                final workers = admin['trabajadores'] as List;
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: ExpansionTile(
+                    leading: Icon(
+                      admin['activo'] ? Icons.check_circle : Icons.cancel,
+                      color: admin['activo'] ? Colors.green : Colors.red,
+                    ),
+                    title: Text(admin['nombre'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('${admin['email']} — Clientes: ${admin['clientes_count']}'),
+                    children: [
+                      _buildUserActions(admin['id'], admin['nombre'], admin['email'], admin['activo']),
+                      const Divider(),
+                      if (workers.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text('Sin trabajadores', style: TextStyle(color: Colors.grey)),
+                        )
+                      else
+                        ...workers.map((w) => ListTile(
+                              leading: Icon(
+                                w['activo'] ? Icons.person : Icons.person_off,
+                                color: w['activo'] ? Colors.blue : Colors.red,
+                              ),
+                              title: Text(w['nombre']),
+                              subtitle: Text(w['email']),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: Icon(w['activo'] ? Icons.block : Icons.check, color: Colors.orange),
+                                    onPressed: () => w['activo'] ? _desactivar(w['id'], w['nombre']) : _activar(w['id'], w['nombre']),
+                                    tooltip: w['activo'] ? 'Desactivar' : 'Activar',
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_forever, color: Colors.red),
+                                    onPressed: () => _eliminar(w['id'], w['nombre']),
+                                    tooltip: 'Eliminar',
+                                  ),
+                                ],
+                              ),
+                            )),
+                    ],
+                  ),
+                );
+              }),
+          ],
+        ),
+      ),
     );
   }
 

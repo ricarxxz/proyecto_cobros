@@ -142,6 +142,11 @@ class CierreDia(Base):
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     cerrado = Column(Boolean, default=True)
 
+class DiaRegistro(Base):
+    __tablename__ = "dias_registro"
+    id = Column(Integer, primary_key=True, index=True)
+    dia = Column(String, unique=True, index=True)
+
 # ============= ESQUEMAS PYDANTIC =============
 
 class UsuarioRegistro(BaseModel):
@@ -215,6 +220,7 @@ class ClienteAnteriorRegistro(BaseModel):
     monto_prestado: float
     interes_porcentaje: float = 20.0
     frecuencia: str = "semanal"
+    fecha_prestamo: Optional[datetime] = None
     cuotas: List[CuotaAnteriorDetalle]
 
 # Crear las tablas (solo create, sin drop)
@@ -1079,6 +1085,8 @@ def registrar_cliente_anterior(datos: ClienteAnteriorRegistro, admin_id: int, db
     total_deuda = datos.monto_prestado + interes
     valor_cartulina = (datos.monto_prestado / 100000) * 5000
 
+    fecha_prestamo = datos.fecha_prestamo or datetime.utcnow()
+
     nuevo_prestamo = Prestamo(
         cliente_id=nuevo_cliente.id,
         usuario_id=admin_id,
@@ -1088,6 +1096,7 @@ def registrar_cliente_anterior(datos: ClienteAnteriorRegistro, admin_id: int, db
         interes_porcentaje=datos.interes_porcentaje,
         valor_cartulina=valor_cartulina,
         frecuencia=datos.frecuencia,
+        fecha_prestamo=fecha_prestamo,
         pagado=True,
         fecha_finalizacion=datetime.utcnow()
     )
@@ -1164,6 +1173,19 @@ def registrar_cliente_anterior(datos: ClienteAnteriorRegistro, admin_id: int, db
         "cuotas_creadas": len(datos.cuotas),
         "mensaje": f"Cliente anterior {datos.nombres} registrado con {len(datos.cuotas)} cuotas"
     }
+
+@app.get("/api/clientes/verificar-dia")
+def verificar_dia_disponible(usuario_id: int, db: Session = Depends(get_db)):
+    dias_map = {
+        "monday": "lunes", "tuesday": "martes", "wednesday": "miércoles",
+        "thursday": "jueves", "friday": "viernes", "saturday": "sábado", "sunday": "domingo"
+    }
+    today_spanish = dias_map.get(date.today().strftime("%A").lower(), date.today().strftime("%A").lower())
+    total = db.query(DiaRegistro).count()
+    if total == 0:
+        return {"disponible": True, "dia": today_spanish}
+    configurado = db.query(DiaRegistro).filter(DiaRegistro.dia == today_spanish).first() is not None
+    return {"disponible": configurado, "dia": today_spanish}
 
 @app.get("/api/clientes/buscar")
 def buscar_cliente(cedula: str = None, nombre: str = None, usuario_id: int = None, db: Session = Depends(get_db)):
@@ -1666,6 +1688,25 @@ def desarrollador_eliminar(usuario_id: int, target_id: int, db: Session = Depend
     db.delete(target)
     db.commit()
     return {"status": "success", "mensaje": f"Usuario {target.nombre} eliminado"}
+
+@app.get("/api/desarrollador/dias-registro")
+def desarrollador_dias_registro(usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario or usuario.rol != RolUsuario.DESARROLLADOR:
+        raise HTTPException(status_code=403, detail="Solo desarrolladores")
+    dias = [d[0] for d in db.query(DiaRegistro.dia).all()]
+    return {"dias": dias}
+
+@app.post("/api/desarrollador/dias-registro")
+def desarrollador_actualizar_dias_registro(datos: dict, usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario or usuario.rol != RolUsuario.DESARROLLADOR:
+        raise HTTPException(status_code=403, detail="Solo desarrolladores")
+    db.query(DiaRegistro).delete()
+    for dia in datos.get("dias", []):
+        db.add(DiaRegistro(dia=dia))
+    db.commit()
+    return {"status": "success", "dias": datos.get("dias", [])}
 
 # ============= ENDPOINTS: COBROS =============
 
