@@ -1553,9 +1553,12 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                                 return Card(
                                   key: ValueKey(cliente['id']),
                                   child: ListTile(
-                                    leading: Icon(
-                                      Icons.drag_handle,
-                                      color: Colors.grey.shade400,
+                                    leading: ReorderableDragStartListener(
+                                      index: i,
+                                      child: Icon(
+                                        Icons.drag_handle,
+                                        color: Colors.grey.shade400,
+                                      ),
                                     ),
                                     title: Text(cliente['nombres'] ?? ''),
                                     subtitle: Text(
