@@ -231,6 +231,30 @@ class _LoginScreenState extends State<LoginScreen> {
                 },
                 child: const Text("¿No tienes cuenta? Regístrate"),
               ),
+              TextButton(
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('¿Olvidaste tu contraseña?'),
+                      content: const Text(
+                        'Solicita al desarrollador que restablezca tu contraseña.\n\n'
+                        'Él puede cambiarla desde el panel de desarrollador.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Aceptar'),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                child: const Text(
+                  'Olvidé mi contraseña',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ),
             ],
           ),
         ),
@@ -5441,7 +5465,13 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
                         if (expanded) _cargarDiasAdmin(admin);
                       },
                       children: [
-                        _buildUserActions(admin['id'], admin['nombre'], admin['email'], admin['activo']),
+                        ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.settings, color: Colors.grey),
+                          title: const Text('Opciones del administrador', style: TextStyle(fontSize: 13)),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _mostrarOpcionesUsuario(admin['id'], admin['nombre'], admin['email'], admin['activo']),
+                        ),
                         const Divider(),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -5499,20 +5529,9 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
                                 ),
                                 title: Text(w['nombre']),
                                 subtitle: Text(w['email']),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: Icon(w['activo'] ? Icons.block : Icons.check, color: Colors.orange),
-                                      onPressed: () => w['activo'] ? _desactivar(w['id'], w['nombre']) : _activar(w['id'], w['nombre']),
-                                      tooltip: w['activo'] ? 'Desactivar' : 'Activar',
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_forever, color: Colors.red),
-                                      onPressed: () => _eliminar(w['id'], w['nombre']),
-                                      tooltip: 'Eliminar',
-                                    ),
-                                  ],
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.settings, color: Colors.grey),
+                                  onPressed: () => _mostrarOpcionesUsuario(w['id'], w['nombre'], w['email'], w['activo']),
                                 ),
                               )),
                       ],
@@ -5524,26 +5543,141 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
     );
   }
 
-  Widget _buildUserActions(int id, String nombre, String email, bool activo) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(email, style: const TextStyle(color: Colors.grey)),
+  Future<void> _mostrarOpcionesUsuario(int id, String nombre, String email, bool activo) async {
+    final accion = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(nombre),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Email: $email', style: const TextStyle(color: Colors.grey)),
+            const SizedBox(height: 8),
+            Text('Estado: ${activo ? "Activo" : "Inactivo"}',
+                style: TextStyle(color: activo ? Colors.green : Colors.red)),
+            const Divider(),
+            _opcionDialog(ctx, 'Cambiar email', Icons.email, Colors.blue, 'cambiar_email'),
+            _opcionDialog(ctx, 'Cambiar contraseña', Icons.lock_reset, Colors.purple, 'cambiar_pass'),
+            _opcionDialog(ctx, activo ? 'Desactivar' : 'Activar', Icons.block, Colors.orange, 'toggle_activo'),
+            _opcionDialog(ctx, 'Eliminar permanentemente', Icons.delete_forever, Colors.red, 'eliminar'),
+          ],
+        ),
+      ),
+    );
+    if (accion == null) return;
+    switch (accion) {
+      case 'cambiar_email':
+        await _cambiarEmail(id, nombre);
+        break;
+      case 'cambiar_pass':
+        await _cambiarContrasena(id, nombre);
+        break;
+      case 'toggle_activo':
+        activo ? _desactivar(id, nombre) : _activar(id, nombre);
+        break;
+      case 'eliminar':
+        _eliminar(id, nombre);
+        break;
+    }
+  }
+
+  Widget _opcionDialog(BuildContext ctx, String texto, IconData icono, Color color, String valor) {
+    return InkWell(
+      onTap: () => Navigator.pop(ctx, valor),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            Icon(icono, color: color, size: 22),
+            const SizedBox(width: 12),
+            Text(texto, style: const TextStyle(fontSize: 15)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _cambiarEmail(int userId, String nombre) async {
+    final controller = TextEditingController();
+    final nuevoEmail = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Cambiar email de $nombre'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Nuevo email',
+            border: OutlineInputBorder(),
           ),
-          IconButton(
-            icon: Icon(activo ? Icons.block : Icons.check, color: Colors.orange),
-            onPressed: () => activo ? _desactivar(id, nombre) : _activar(id, nombre),
-            tooltip: activo ? 'Desactivar' : 'Activar',
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_forever, color: Colors.red),
-            onPressed: () => _eliminar(id, nombre),
-            tooltip: 'Eliminar',
+          keyboardType: TextInputType.emailAddress,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Guardar'),
           ),
         ],
       ),
     );
+    if (nuevoEmail == null || nuevoEmail.isEmpty) return;
+    try {
+      final resp = await http.post(
+        Uri.parse('https://proyecto-cobros.onrender.com/api/desarrollador/cambiar-email?usuario_id=${SessionGlobal.usuarioId}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'target_id': userId, 'nuevo_email': nuevoEmail}),
+      );
+      if (resp.statusCode == 200 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Email actualizado'), backgroundColor: Colors.green));
+        _cargarUsuarios();
+      } else {
+        final err = jsonDecode(resp.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err['detail'] ?? 'Error')));
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _cambiarContrasena(int userId, String nombre) async {
+    final controller = TextEditingController();
+    final nuevaPass = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Cambiar contraseña de $nombre'),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: 'Nueva contraseña',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    if (nuevaPass == null || nuevaPass.isEmpty) return;
+    try {
+      final resp = await http.post(
+        Uri.parse('https://proyecto-cobros.onrender.com/api/desarrollador/cambiar-contrasena?usuario_id=${SessionGlobal.usuarioId}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'target_id': userId, 'nueva_contrasena': nuevaPass}),
+      );
+      if (resp.statusCode == 200 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contraseña actualizada'), backgroundColor: Colors.green));
+      } else {
+        final err = jsonDecode(resp.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err['detail'] ?? 'Error')));
+        }
+      }
+    } catch (_) {}
   }
 }

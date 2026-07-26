@@ -1712,6 +1712,41 @@ def desarrollador_actualizar_dias_registro(datos: dict, usuario_id: int, db: Ses
     db.commit()
     return {"status": "success", "dias": datos.get("dias", [])}
 
+@app.post("/api/desarrollador/cambiar-contrasena")
+def desarrollador_cambiar_contrasena(datos: dict, usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario or usuario.rol != RolUsuario.DESARROLLADOR:
+        raise HTTPException(status_code=403, detail="Solo desarrolladores")
+    target_id = datos.get("target_id")
+    nueva_contrasena = datos.get("nueva_contrasena")
+    if not target_id or not nueva_contrasena:
+        raise HTTPException(status_code=400, detail="target_id y nueva_contrasena requeridos")
+    target = db.query(Usuario).filter(Usuario.id == target_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    target.password_hash = hash_password(nueva_contrasena)
+    db.commit()
+    return {"status": "success", "mensaje": "Contraseña actualizada"}
+
+@app.post("/api/desarrollador/cambiar-email")
+def desarrollador_cambiar_email(datos: dict, usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario or usuario.rol != RolUsuario.DESARROLLADOR:
+        raise HTTPException(status_code=403, detail="Solo desarrolladores")
+    target_id = datos.get("target_id")
+    nuevo_email = datos.get("nuevo_email")
+    if not target_id or not nuevo_email:
+        raise HTTPException(status_code=400, detail="target_id y nuevo_email requeridos")
+    existe = db.query(Usuario).filter(Usuario.email == nuevo_email).first()
+    if existe:
+        raise HTTPException(status_code=400, detail="El email ya está registrado")
+    target = db.query(Usuario).filter(Usuario.id == target_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    target.email = nuevo_email
+    db.commit()
+    return {"status": "success", "mensaje": "Email actualizado"}
+
 # ============= ENDPOINTS: COBROS =============
 
 @app.post("/api/cobros/registrar-pago")
