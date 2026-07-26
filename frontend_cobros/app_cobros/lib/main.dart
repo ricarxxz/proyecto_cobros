@@ -145,8 +145,15 @@ class _LoginScreenState extends State<LoginScreen> {
     String password;
 
     if (biometrico) {
-      final autenticado = await BiometricService.authenticate();
-      if (!autenticado) return;
+      final error = await BiometricService.authenticate();
+      if (error != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error)),
+          );
+        }
+        return;
+      }
       final creds = await BiometricService.getCredentials();
       if (creds == null) {
         if (mounted) {
@@ -229,7 +236,26 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
     if (guardar == true) {
-      await BiometricService.saveCredentials(email, password);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Confirma tu identidad con tu huella')),
+        );
+      }
+      final error = await BiometricService.authenticate(reason: 'Confirma tu identidad para guardar tu huella');
+      if (error == null) {
+        await BiometricService.saveCredentials(email, password);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Huella guardada correctamente'), backgroundColor: Colors.green),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No se guardó: $error')),
+          );
+        }
+      }
     }
   }
 
@@ -286,7 +312,19 @@ class _LoginScreenState extends State<LoginScreen> {
                       : const Text("Ingresar", style: TextStyle(fontSize: 16)),
                 ),
               ),
-              if (_hasBiometricCredentials)
+              if (_hasBiometricCredentials) ...[
+                const SizedBox(height: 20),
+                const Row(
+                  children: [
+                    Expanded(child: Divider()),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('o', style: TextStyle(color: Colors.grey)),
+                    ),
+                    Expanded(child: Divider()),
+                  ],
+                ),
+                const SizedBox(height: 15),
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -297,6 +335,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
                   ),
                 ),
+              ],
               const SizedBox(height: 15),
               TextButton(
                 onPressed: () {
