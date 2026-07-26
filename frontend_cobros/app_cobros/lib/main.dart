@@ -2589,6 +2589,17 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
 
   Future<void> _registrarCliente() async {
     if (await verificarBloqueo(context)) return;
+    if (!_diaDisponible) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Día no disponible — No se pueden registrar clientes hoy.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
 
     if (_nombresController.text.isEmpty ||
         _cedulaController.text.isEmpty ||
@@ -2990,6 +3001,17 @@ class _RegistroClienteAnteriorScreenState
   }
 
   Future<void> _registrar() async {
+    if (!_diaDisponible) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Día no disponible — No se pueden registrar clientes hoy.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
     if (_nombresController.text.isEmpty ||
         _cedulaController.text.isEmpty ||
         _telefonoController.text.isEmpty ||
@@ -3510,6 +3532,7 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
   bool _isLoading = false;
   bool _buscando = false;
   bool _bloqueado = false;
+  bool _diaDisponible = true;
   Timer? _debounce;
 
   @override
@@ -3576,13 +3599,36 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
 
   Future<void> _verificarBloqueo() async {
     final bloqueado = await CierreDiaService.isBlockedNow();
+    bool disponible = true;
+    try {
+      final resp = await http.get(Uri.parse(
+        'https://proyecto-cobros.onrender.com/api/clientes/verificar-dia?usuario_id=${SessionGlobal.usuarioId}',
+      ));
+      if (resp.statusCode == 200) {
+        disponible = jsonDecode(resp.body)['disponible'] ?? true;
+      }
+    } catch (_) {}
     if (mounted) {
-      setState(() => _bloqueado = bloqueado);
+      setState(() {
+        _bloqueado = bloqueado;
+        _diaDisponible = disponible;
+      });
     }
   }
 
   Future<void> _crearPrestamo() async {
     if (await verificarBloqueo(context)) return;
+    if (!_diaDisponible) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Día no disponible — No se pueden registrar préstamos hoy.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
 
     if (_clienteId == null ||
         _montoController.text.isEmpty ||
@@ -3782,6 +3828,22 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
                 },
               ),
               const SizedBox(height: 30),
+              if (!_diaDisponible)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red[100],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'Día no disponible — Hoy no se pueden registrar préstamos.',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               if (_bloqueado)
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -3802,7 +3864,7 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: (_clienteId == null || _isLoading || _bloqueado)
+                  onPressed: (_clienteId == null || _isLoading || _bloqueado || !_diaDisponible)
                       ? null
                       : _crearPrestamo,
                   style: ElevatedButton.styleFrom(
