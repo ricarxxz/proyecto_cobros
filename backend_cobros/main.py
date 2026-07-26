@@ -973,6 +973,8 @@ def registrar_cliente_con_prestamo(datos: ClientePrestamoRegistro, admin_id: int
     if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
         raise HTTPException(status_code=403, detail="Solo administradores pueden registrar clientes")
     
+    _validar_dia_no_bloqueado(admin_id, db)
+    
     # Verificar si la cédula ya existe
     db_cliente = db.query(Cliente).filter(Cliente.cedula == datos.cedula).first()
     if db_cliente and db_cliente.activo:
@@ -1065,6 +1067,8 @@ def registrar_cliente_anterior(datos: ClienteAnteriorRegistro, admin_id: int, db
     admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
     if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
         raise HTTPException(status_code=403, detail="Solo administradores pueden registrar clientes anteriores")
+
+    _validar_dia_no_bloqueado(admin_id, db)
 
     db_cliente = db.query(Cliente).filter(Cliente.cedula == datos.cedula).first()
     if db_cliente and db_cliente.activo:
@@ -1186,6 +1190,16 @@ def verificar_dia_disponible(usuario_id: int, db: Session = Depends(get_db)):
     if len(dias_admin) == 0:
         return {"disponible": True, "dia": today_spanish}
     return {"disponible": today_spanish not in dias_admin, "dia": today_spanish}
+
+def _validar_dia_no_bloqueado(usuario_id: int, db: Session):
+    dias_map = {
+        "monday": "lunes", "tuesday": "martes", "wednesday": "miércoles",
+        "thursday": "jueves", "friday": "viernes", "saturday": "sábado", "sunday": "domingo"
+    }
+    today_spanish = dias_map.get(date.today().strftime("%A").lower(), date.today().strftime("%A").lower())
+    dias_admin = [d[0] for d in db.query(AdminDiaRegistro.dia).filter(AdminDiaRegistro.admin_id == usuario_id).all()]
+    if len(dias_admin) > 0 and today_spanish in dias_admin:
+        raise HTTPException(status_code=403, detail="Hoy no puedes registrar préstamos. Día bloqueado por el desarrollador.")
 
 @app.get("/api/clientes/buscar")
 def buscar_cliente(cedula: str = None, nombre: str = None, usuario_id: int = None, db: Session = Depends(get_db)):
@@ -1340,6 +1354,8 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not usuario or usuario.rol != RolUsuario.ADMINISTRADOR:
         raise HTTPException(status_code=403, detail="Solo administradores pueden crear préstamos")
+    
+    _validar_dia_no_bloqueado(usuario_id, db)
     
     # Verificar que el cliente existe y pertenece a este admin
     cliente = db.query(Cliente).filter(Cliente.id == prestamo.cliente_id, Cliente.usuario_id == usuario_id).first()
