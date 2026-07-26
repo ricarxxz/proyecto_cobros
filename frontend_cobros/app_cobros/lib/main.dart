@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import 'cierre_dia_service.dart';
+import 'biometric_service.dart';
 
 String formatearDinero(dynamic valor) {
   if (valor == null) return '\$0';
@@ -119,13 +120,53 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _biometricAvailable = false;
+  bool _hasBiometricCredentials = false;
 
-  Future<void> _login() async {
-    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Complete todos los campos")),
-      );
-      return;
+  @override
+  void initState() {
+    super.initState();
+    _checkBiometric();
+  }
+
+  Future<void> _checkBiometric() async {
+    final available = await BiometricService.isAvailable();
+    final hasCreds = await BiometricService.hasCredentials();
+    if (mounted) {
+      setState(() {
+        _biometricAvailable = available;
+        _hasBiometricCredentials = hasCreds;
+      });
+    }
+  }
+
+  Future<void> _login({bool biometrico = false}) async {
+    String email;
+    String password;
+
+    if (biometrico) {
+      final autenticado = await BiometricService.authenticate();
+      if (!autenticado) return;
+      final creds = await BiometricService.getCredentials();
+      if (creds == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No hay credenciales guardadas')),
+          );
+        }
+        return;
+      }
+      email = creds['email']!;
+      password = creds['password']!;
+    } else {
+      email = _emailController.text.trim();
+      password = _passwordController.text;
+      if (email.isEmpty || password.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Complete todos los campos")),
+        );
+        return;
+      }
     }
 
     setState(() => _isLoading = true);
@@ -134,10 +175,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final response = await http.post(
         Uri.parse('https://proyecto-cobros.onrender.com/api/auth/login'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': _emailController.text,
-          'password': _passwordController.text,
-        }),
+        body: jsonEncode({'email': email, 'password': password}),
       );
 
       if (response.statusCode == 200) {
@@ -147,22 +185,51 @@ class _LoginScreenState extends State<LoginScreen> {
         SessionGlobal.nombreUsuario = data['nombre'];
         SessionGlobal.rol = data['rol'];
 
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const MenuPrincipal()),
-        );
+        if (!biometrico && _biometricAvailable && mounted) {
+          _preguntarGuardarBiometrico(email, password);
+        }
+
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const MenuPrincipal()),
+          );
+        }
       } else {
         final error = jsonDecode(response.body);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error['detail'] ?? 'Error en login')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error['detail'] ?? 'Error en login')),
+          );
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error de conexión: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error de conexión: $e")),
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _preguntarGuardarBiometrico(String email, String password) async {
+    final guardar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Activar huella digital?'),
+        content: const Text(
+          '¿Quieres iniciar sesión con tu huella la próxima vez?',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sí')),
+        ],
+      ),
+    );
+    if (guardar == true) {
+      await BiometricService.saveCredentials(email, password);
     }
   }
 
@@ -219,6 +286,17 @@ class _LoginScreenState extends State<LoginScreen> {
                       : const Text("Ingresar", style: TextStyle(fontSize: 16)),
                 ),
               ),
+              if (_hasBiometricCredentials)
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton.icon(
+                    onPressed: _isLoading ? null : () => _login(biometrico: true),
+                    icon: const Icon(Icons.fingerprint),
+                    label: const Text("Huella digital", style: TextStyle(fontSize: 16)),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                  ),
+                ),
               const SizedBox(height: 15),
               TextButton(
                 onPressed: () {
