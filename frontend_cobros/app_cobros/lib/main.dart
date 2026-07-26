@@ -185,8 +185,8 @@ class _LoginScreenState extends State<LoginScreen> {
         SessionGlobal.nombreUsuario = data['nombre'];
         SessionGlobal.rol = data['rol'];
 
-        if (!biometrico && _biometricAvailable && mounted) {
-          _preguntarGuardarBiometrico(email, password);
+        if (!biometrico && _biometricAvailable) {
+          await _preguntarGuardarBiometrico(email, password);
         }
 
         if (mounted) {
