@@ -2561,6 +2561,10 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
   bool _isLoading = false;
   bool _bloqueado = false;
   bool _diaDisponible = true;
+  List<String> _diasBloqueados = [];
+  final List<String> _todosDias = [
+    'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo',
+  ];
 
   @override
   void initState() {
@@ -2568,38 +2572,37 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
     _verificarBloqueo();
   }
 
+  List<String> get _diasDisponibles =>
+      _todosDias.where((d) => !_diasBloqueados.contains(d)).toList();
+
   Future<void> _verificarBloqueo() async {
     final bloqueado = await CierreDiaService.isBlockedNow();
     bool disponible = true;
+    List<String> diasBloqueados = [];
     try {
       final resp = await http.get(Uri.parse(
         'https://proyecto-cobros.onrender.com/api/clientes/verificar-dia?usuario_id=${SessionGlobal.usuarioId}',
       ));
       if (resp.statusCode == 200) {
-        disponible = jsonDecode(resp.body)['disponible'] ?? true;
+        final data = jsonDecode(resp.body);
+        disponible = data['disponible'] ?? true;
+        diasBloqueados = List<String>.from(data['dias_bloqueados'] ?? []);
       }
     } catch (_) {}
     if (mounted) {
       setState(() {
         _bloqueado = bloqueado;
         _diaDisponible = disponible;
+        _diasBloqueados = diasBloqueados;
+        if (_diasBloqueados.contains(_diaCobro)) {
+          _diaCobro = _diasDisponibles.isNotEmpty ? _diasDisponibles.first : 'lunes';
+        }
       });
     }
   }
 
   Future<void> _registrarCliente() async {
     if (await verificarBloqueo(context)) return;
-    if (!_diaDisponible) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Día no disponible — No se pueden registrar clientes hoy.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
 
     if (_nombresController.text.isEmpty ||
         _cedulaController.text.isEmpty ||
@@ -2729,28 +2732,19 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.calendar_today),
                 ),
-                items:
-                    [
-                          'lunes',
-                          'martes',
-                          'miércoles',
-                          'jueves',
-                          'viernes',
-                          'sábado',
-                          'domingo',
-                        ]
-                        .map(
-                          (dia) => DropdownMenuItem(
-                            value: dia,
-                            child: Text(
-                              dia[0].toUpperCase() + dia.substring(1),
-                            ),
-                          ),
-                        )
-                        .toList(),
+                items: _diasDisponibles
+                    .map(
+                      (dia) => DropdownMenuItem(
+                        value: dia,
+                        child: Text(
+                          dia[0].toUpperCase() + dia.substring(1),
+                        ),
+                      ),
+                    )
+                    .toList(),
                 onChanged: (value) {
                   setState(() {
-                    _diaCobro = value ?? 'lunes';
+                    _diaCobro = value ?? _diasDisponibles.first;
                   });
                 },
               ),
@@ -2848,22 +2842,6 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
                 },
               ),
               const SizedBox(height: 30),
-              if (!_diaDisponible)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.red[100],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    'Día no disponible — Hoy no se pueden registrar clientes.',
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
               if (_bloqueado)
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -2884,7 +2862,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: (_isLoading || _bloqueado || !_diaDisponible)
+                  onPressed: (_isLoading || _bloqueado)
                       ? null
                       : _registrarCliente,
                   style: ElevatedButton.styleFrom(
@@ -2925,6 +2903,10 @@ class _RegistroClienteAnteriorScreenState
   DateTime _fechaPrestamo = DateTime.now();
   bool _isLoading = false;
   bool _diaDisponible = true;
+  List<String> _diasBloqueados = [];
+  final List<String> _todosDias = [
+    'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo',
+  ];
 
   List<_CuotaAnteriorState> _cuotas = [];
 
@@ -2934,13 +2916,24 @@ class _RegistroClienteAnteriorScreenState
     _verificarDia();
   }
 
+  List<String> get _diasDisponibles =>
+      _todosDias.where((d) => !_diasBloqueados.contains(d)).toList();
+
   Future<void> _verificarDia() async {
     try {
       final resp = await http.get(Uri.parse(
         'https://proyecto-cobros.onrender.com/api/clientes/verificar-dia?usuario_id=${SessionGlobal.usuarioId}',
       ));
       if (resp.statusCode == 200 && mounted) {
-        setState(() => _diaDisponible = jsonDecode(resp.body)['disponible'] ?? true);
+        final data = jsonDecode(resp.body);
+        final diasBloqueados = List<String>.from(data['dias_bloqueados'] ?? []);
+        setState(() {
+          _diaDisponible = data['disponible'] ?? true;
+          _diasBloqueados = diasBloqueados;
+          if (_diasBloqueados.contains(_diaCobro)) {
+            _diaCobro = _diasDisponibles.isNotEmpty ? _diasDisponibles.first : 'lunes';
+          }
+        });
       }
     } catch (_) {}
   }
@@ -3012,17 +3005,6 @@ class _RegistroClienteAnteriorScreenState
   }
 
   Future<void> _registrar() async {
-    if (!_diaDisponible) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Día no disponible — No se pueden registrar clientes hoy.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
     if (_nombresController.text.isEmpty ||
         _cedulaController.text.isEmpty ||
         _telefonoController.text.isEmpty ||
@@ -3201,14 +3183,13 @@ class _RegistroClienteAnteriorScreenState
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.calendar_today),
               ),
-              items: ['lunes', 'martes', 'miércoles', 'jueves', 'viernes',
-                      'sábado', 'domingo']
+              items: _diasDisponibles
                   .map((dia) => DropdownMenuItem(
                         value: dia,
                         child: Text(dia[0].toUpperCase() + dia.substring(1)),
                       ))
                   .toList(),
-              onChanged: (v) => setState(() => _diaCobro = v ?? 'lunes'),
+              onChanged: (v) => setState(() => _diaCobro = v ?? (_diasDisponibles.isNotEmpty ? _diasDisponibles.first : 'lunes')),
             ),
             const SizedBox(height: 20),
             const Divider(),
@@ -3466,27 +3447,11 @@ Icon(Icons.attach_money, color: Colors.black54, size: 20),
               }),
             ],
             const SizedBox(height: 30),
-            if (!_diaDisponible)
-              Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.red[100],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'Día no disponible — Hoy no se pueden registrar clientes.',
-                  style: TextStyle(
-                    color: Colors.red,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
             SizedBox(
               width: double.infinity,
               height: 50,
               child: ElevatedButton(
-                onPressed: (_isLoading || !_diaDisponible) ? null : _registrar,
+                onPressed: _isLoading ? null : _registrar,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.brown,
                 ),
@@ -3629,17 +3594,6 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
 
   Future<void> _crearPrestamo() async {
     if (await verificarBloqueo(context)) return;
-    if (!_diaDisponible) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Día no disponible — No se pueden registrar préstamos hoy.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
 
     if (_clienteId == null ||
         _montoController.text.isEmpty ||
@@ -3849,23 +3803,6 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              if (!_diaDisponible)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.red[100],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    'Día no disponible — Hoy no se pueden registrar préstamos.',
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
               if (_bloqueado)
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -3886,7 +3823,7 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: (_clienteId == null || _isLoading || _bloqueado || !_diaDisponible)
+                  onPressed: (_clienteId == null || _isLoading || _bloqueado)
                       ? null
                       : _crearPrestamo,
                   style: ElevatedButton.styleFrom(
