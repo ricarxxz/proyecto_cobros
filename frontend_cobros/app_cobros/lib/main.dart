@@ -583,13 +583,23 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
   ];
 
   bool get _esAdmin => SessionGlobal.rol == 'administrador';
+  bool get _esDesarrollador => SessionGlobal.rol == 'desarrollador';
+
+  // Developer panel state
+  List _devAdmins = [];
+  List _solicitudes = [];
+  bool _isLoadingDev = true;
 
   @override
   void initState() {
     super.initState();
-    _cargarClientesPorDia();
-    if (_esAdmin) {
-      _cargarAlertasCuotasVencidas();
+    if (_esDesarrollador) {
+      _cargarDevUsuarios();
+    } else {
+      _cargarClientesPorDia();
+      if (_esAdmin) {
+        _cargarAlertasCuotasVencidas();
+      }
     }
     _busquedaController.addListener(_onSearchChanged);
     _verificarSesionPeriodicamente();
@@ -665,6 +675,90 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
         Uri.parse('https://proyecto-cobros.onrender.com/api/admin/reordenar-clientes?admin_id=${SessionGlobal.usuarioId}'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'ordenes': ordenes}),
+      );
+    } catch (_) {}
+  }
+
+  // ===== Developer methods =====
+  Future<void> _cargarDevUsuarios() async {
+    setState(() => _isLoadingDev = true);
+    try {
+      final response = await http.get(Uri.parse(
+        'https://proyecto-cobros.onrender.com/api/desarrollador/listar-usuarios?usuario_id=${SessionGlobal.usuarioId}',
+      ));
+      if (response.statusCode == 200) {
+        final admins = jsonDecode(response.body) as List;
+        for (var admin in admins) {
+          admin['_dias'] = <String>[];
+          admin['_loadingDias'] = false;
+        }
+        setState(() => _devAdmins = admins);
+      }
+    } catch (_) {}
+    setState(() => _isLoadingDev = false);
+    _cargarDevSolicitudes();
+  }
+
+  Future<void> _cargarDevSolicitudes() async {
+    try {
+      final response = await http.get(Uri.parse(
+        'https://proyecto-cobros.onrender.com/api/desarrollador/solicitudes?usuario_id=${SessionGlobal.usuarioId}',
+      ));
+      if (response.statusCode == 200) {
+        setState(() => _solicitudes = jsonDecode(response.body) as List);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _procesarSolicitudDev(int solicitudId, String accion) async {
+    try {
+      final response = await http.post(
+        Uri.parse('https://proyecto-cobros.onrender.com/api/desarrollador/aprobar-solicitud?usuario_id=${SessionGlobal.usuarioId}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'solicitud_id': solicitudId, 'accion': accion}),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['mensaje'] ?? 'Solicitud procesada'), backgroundColor: accion == 'aprobar' ? Colors.green : Colors.orange),
+          );
+        }
+        _cargarDevSolicitudes();
+        _cargarDevUsuarios();
+      } else {
+        final err = jsonDecode(response.body);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err['detail'] ?? 'Error')));
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _cargarDiasAdmin(dynamic admin) async {
+    admin['_loadingDias'] = true;
+    setState(() {});
+    try {
+      final response = await http.get(Uri.parse(
+        'https://proyecto-cobros.onrender.com/api/desarrollador/dias-registro?usuario_id=${SessionGlobal.usuarioId}&admin_id=${admin['id']}',
+      ));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        admin['_dias'] = List<String>.from(data['dias'] ?? []);
+      }
+    } catch (_) {}
+    admin['_loadingDias'] = false;
+    setState(() {});
+  }
+
+  Future<void> _toggleDiaAdmin(dynamic admin, String dia) async {
+    final dias = List<String>.from(admin['_dias'] ?? []);
+    final updated = dias.contains(dia) ? dias.where((d) => d != dia).toList() : [...dias, dia];
+    admin['_dias'] = updated;
+    setState(() {});
+    try {
+      await http.post(
+        Uri.parse('https://proyecto-cobros.onrender.com/api/desarrollador/dias-registro?usuario_id=${SessionGlobal.usuarioId}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'admin_id': admin['id'], 'dias': updated}),
       );
     } catch (_) {}
   }
@@ -1149,6 +1243,147 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
     );
   }
 
+  Widget _buildDevPanel() {
+    final List<String> _todosDias = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+    return _isLoadingDev
+        ? const Center(child: CircularProgressIndicator())
+        : RefreshIndicator(
+            onRefresh: () async { await _cargarDevUsuarios(); },
+            child: ListView.builder(
+              itemCount: _devAdmins.length + (_solicitudes.isNotEmpty ? 1 : 0),
+              itemBuilder: (_, i) {
+                if (_solicitudes.isNotEmpty && i == 0) {
+                  return Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    color: Colors.orange.shade50,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.pending_actions, color: Colors.orange.shade700, size: 22),
+                              const SizedBox(width: 8),
+                              Text('Solicitudes Pendientes (${_solicitudes.length})',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.orange.shade800)),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          ..._solicitudes.map((s) => Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(s['nombres'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  Text(s['email'] ?? '', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                  if ((s['mensaje'] ?? '').isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Icon(Icons.message, size: 14, color: Colors.grey.shade600),
+                                          const SizedBox(width: 6),
+                                          Expanded(child: Text(s['mensaje'], style: const TextStyle(fontSize: 12))),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      TextButton.icon(
+                                        onPressed: () => _procesarSolicitudDev(s['id'], 'aprobar'),
+                                        icon: const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                                        label: const Text('Aprobar', style: TextStyle(color: Colors.green)),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      TextButton.icon(
+                                        onPressed: () => _procesarSolicitudDev(s['id'], 'rechazar'),
+                                        icon: const Icon(Icons.cancel, color: Colors.red, size: 18),
+                                        label: const Text('Rechazar', style: TextStyle(color: Colors.red)),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+                final adminIndex = _solicitudes.isNotEmpty ? i - 1 : i;
+                final admin = _devAdmins[adminIndex];
+                final workers = admin['trabajadores'] as List;
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: ExpansionTile(
+                    leading: Icon(
+                      admin['activo'] ? Icons.check_circle : Icons.cancel,
+                      color: admin['activo'] ? Colors.green : Colors.red,
+                    ),
+                    title: Text(admin['nombre'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('${admin['email']} — Clientes: ${admin['clientes_count']}'),
+                    onExpansionChanged: (expanded) {
+                      if (expanded) _cargarDiasAdmin(admin);
+                    },
+                    children: [
+                      const Divider(),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Días bloqueados para registrar:', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                            const SizedBox(height: 8),
+                            if (admin['_loadingDias'])
+                              const Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2))
+                            else
+                              Wrap(
+                                spacing: 6, runSpacing: 6,
+                                children: _todosDias.map((dia) {
+                                  final selected = (admin['_dias'] as List).contains(dia);
+                                  return FilterChip(
+                                    label: Text(dia[0].toUpperCase() + dia.substring(1), style: const TextStyle(fontSize: 12)),
+                                    selected: selected,
+                                    selectedColor: Colors.red.shade100,
+                                    checkmarkColor: Colors.red,
+                                    visualDensity: VisualDensity.compact,
+                                    onSelected: (_) => _toggleDiaAdmin(admin, dia),
+                                  );
+                                }).toList(),
+                              ),
+                            if (!admin['_loadingDias'] && (admin['_dias'] as List).isEmpty)
+                              const Padding(padding: EdgeInsets.only(top: 4),
+                                child: Text('Ningún día bloqueado', style: TextStyle(fontSize: 11, color: Colors.green, fontStyle: FontStyle.italic))),
+                          ],
+                        ),
+                      ),
+                      const Divider(),
+                      if (workers.isEmpty)
+                        const Padding(padding: EdgeInsets.all(8), child: Text('Sin trabajadores', style: TextStyle(color: Colors.grey)))
+                      else
+                        ...workers.map((w) => ListTile(
+                              leading: Icon(w['activo'] ? Icons.person : Icons.person_off, color: w['activo'] ? Colors.blue : Colors.red),
+                              title: Text(w['nombre']),
+                              subtitle: Text(w['email']),
+                            )),
+                    ],
+                  ),
+                );
+              },
+            ),
+          );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1350,37 +1585,25 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
               ),
               const Divider(),
             ],
-            // MENÚ PARA DESARROLLADOR
-            if (SessionGlobal.rol == 'desarrollador') ...[
+            // OPCIONES COMUNES
+            if (SessionGlobal.rol != 'desarrollador')
               ListTile(
-                leading: const Icon(Icons.admin_panel_settings, color: Colors.red),
-                title: const Text('Panel Desarrollador'),
+                leading: const Icon(Icons.bar_chart, color: Colors.teal),
+                title: const Text('Resumen del Día'),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const DesarrolladorScreen()),
+                    MaterialPageRoute(builder: (_) => const ResumenDiaScreen()),
                   );
                 },
               ),
-              const Divider(),
-            ],
-            // OPCIONES COMUNES
-            ListTile(
-              leading: const Icon(Icons.bar_chart, color: Colors.teal),
-              title: const Text('Resumen del Día'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ResumenDiaScreen()),
-                );
-              },
-            ),
           ],
         ),
       ),
-      body: Column(
+      body: _esDesarrollador
+          ? _buildDevPanel()
+          : Column(
         children: [
           // Search bar
           Padding(
@@ -5390,92 +5613,6 @@ class _ResumenDiaScreenState extends State<ResumenDiaScreen> {
                 ),
               ),
             ),
-    );
-  }
-}
-
-// ============= CIERRE DEL DÍA =============
-class CierreDiaScreen extends StatefulWidget {
-  const CierreDiaScreen({super.key});
-
-  @override
-  _CierreDiaScreenState createState() => _CierreDiaScreenState();
-}
-
-class _CierreDiaScreenState extends State<CierreDiaScreen> {
-  bool _isLoading = false;
-
-  Future<void> _hacerCierre() async {
-    setState(() => _isLoading = true);
-
-    try {
-      final usuarioId = SessionGlobal.usuarioId;
-      if (usuarioId == null) {
-        throw Exception('Usuario no autenticado');
-      }
-
-      final response = await http.post(
-        Uri.parse(
-          'https://proyecto-cobros.onrender.com/api/cierre-dia/crear?usuario_id=$usuarioId',
-        ),
-        headers: {'Content-Type': 'application/json'},
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Cierre completado\nSaldo Neto: ${formatearDinero(data['saldo_neto'])}",
-            ),
-          ),
-        );
-      } else {
-        final error = jsonDecode(response.body);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error['detail'] ?? 'Error al hacer cierre')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error: $e")));
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Cierre del Día")),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.check_circle, size: 100, color: Colors.blue),
-            const SizedBox(height: 30),
-            const Text(
-              "¿Deseas hacer el cierre del día de hoy?",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 30),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _isLoading ? null : _hacerCierre,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text("Confirmar Cierre"),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
