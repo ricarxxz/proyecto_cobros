@@ -1185,7 +1185,7 @@ def verificar_dia_disponible(usuario_id: int, db: Session = Depends(get_db)):
     dias_admin = [d[0] for d in db.query(AdminDiaRegistro.dia).filter(AdminDiaRegistro.admin_id == usuario_id).all()]
     if len(dias_admin) == 0:
         return {"disponible": True, "dia": today_spanish}
-    return {"disponible": today_spanish in dias_admin, "dia": today_spanish}
+    return {"disponible": today_spanish not in dias_admin, "dia": today_spanish}
 
 @app.get("/api/clientes/buscar")
 def buscar_cliente(cedula: str = None, nombre: str = None, usuario_id: int = None, db: Session = Depends(get_db)):

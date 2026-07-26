@@ -2780,6 +2780,17 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.calendar_today, size: 18, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Fecha del préstamo: ${DateTime.now().day.toString().padLeft(2, '0')}/${DateTime.now().month.toString().padLeft(2, '0')}/${DateTime.now().year}',
+                    style: const TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: _montoController,
                 keyboardType: TextInputType.number,
@@ -3827,7 +3838,18 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
                   setState(() => _frecuencia = value ?? "semanal");
                 },
               ),
-              const SizedBox(height: 30),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.calendar_today, size: 18, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Fecha del préstamo: ${DateTime.now().day.toString().padLeft(2, '0')}/${DateTime.now().month.toString().padLeft(2, '0')}/${DateTime.now().year}',
+                    style: const TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               if (!_diaDisponible)
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -5490,7 +5512,7 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Text(
-                                'Días para registrar clientes:',
+                                'Días bloqueados para registrar:',
                                 style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
                               ),
                               const SizedBox(height: 8),
@@ -5508,21 +5530,21 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
                                     return FilterChip(
                                       label: Text(dia[0].toUpperCase() + dia.substring(1), style: const TextStyle(fontSize: 12)),
                                       selected: selected,
-                                      selectedColor: Colors.green.shade100,
-                                      checkmarkColor: Colors.green,
+                                      selectedColor: Colors.red.shade100,
+                                      checkmarkColor: Colors.red,
                                       visualDensity: VisualDensity.compact,
                                       onSelected: (_) => _toggleDiaAdmin(admin, dia),
                                     );
                                   }).toList(),
                                 ),
                               if (!admin['_loadingDias'] && (admin['_dias'] as List).isEmpty)
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    'Todos los días disponibles',
-                                    style: TextStyle(fontSize: 11, color: Colors.orange, fontStyle: FontStyle.italic),
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      'Ningún día bloqueado',
+                                      style: TextStyle(fontSize: 11, color: Colors.green, fontStyle: FontStyle.italic),
+                                    ),
                                   ),
-                                ),
                             ],
                           ),
                         ),
