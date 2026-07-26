@@ -392,6 +392,7 @@ class _RegistroUsuarioScreenState extends State<RegistroUsuarioScreen> {
   final _nombreController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _mensajeController = TextEditingController();
   bool _isLoading = false;
 
   Future<void> _registro() async {
@@ -423,15 +424,27 @@ class _RegistroUsuarioScreenState extends State<RegistroUsuarioScreen> {
           'email': _emailController.text,
           'password': _passwordController.text,
           'rol': 'administrador',
+          'mensaje': _mensajeController.text,
         }),
       );
 
       if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Administrador registrado exitosamente"),
-          ),
-        );
+        final data = jsonDecode(response.body);
+        if (data['status'] == 'solicitud_creada') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Solicitud enviada. Espera a que el desarrollador la apruebe.",
+              ),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Administrador registrado exitosamente"),
+            ),
+          );
+        }
         Navigator.pop(context);
       } else {
         final error = jsonDecode(response.body);
@@ -496,7 +509,24 @@ class _RegistroUsuarioScreenState extends State<RegistroUsuarioScreen> {
                   prefixIcon: Icon(Icons.lock),
                 ),
               ),
-              const SizedBox(height: 30),
+              const SizedBox(height: 15),
+              TextField(
+                controller: _mensajeController,
+                maxLength: 500,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: "Mensaje para el desarrollador (opcional)",
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.message),
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                "Tu solicitud será enviada al desarrollador para aprobación.",
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 15),
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -505,7 +535,7 @@ class _RegistroUsuarioScreenState extends State<RegistroUsuarioScreen> {
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("Registrar Administrador"),
+                      : const Text("Solicitar Registro"),
                 ),
               ),
             ],
@@ -622,6 +652,21 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
         setState(() => _cargandoClientes = false);
       }
     }
+  }
+
+  Future<void> _guardarOrdenClientes() async {
+    if (!_esAdmin) return;
+    final ordenes = _clientes.asMap().entries.map((entry) => {
+      'id': entry.value['id'],
+      'orden': entry.key,
+    }).toList();
+    try {
+      await http.post(
+        Uri.parse('https://proyecto-cobros.onrender.com/api/admin/reordenar-clientes?admin_id=${SessionGlobal.usuarioId}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'ordenes': ordenes}),
+      );
+    } catch (_) {}
   }
 
   Future<void> _cargarAlertasCuotasVencidas() async {
@@ -1472,33 +1517,60 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
           Expanded(
             child: _cargandoClientes
                 ? const Center(child: CircularProgressIndicator())
-                : ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    children: [
-                      if (!_esAdmin && _clientes.isEmpty)
-                        const Center(
-                          child: Text('No hay clientes para este día'),
-                        )
-                      else if (_esAdmin && _clientes.isEmpty)
-                        const Center(child: Text('No hay clientes registrados'))
-                      else
-                        ..._clientes.map((cliente) {
-                          return Card(
-                            child: ListTile(
-                              leading: const Icon(Icons.person),
-                              title: Text(cliente['nombres'] ?? ''),
-                              subtitle: Text(
-                                'Cédula: ${cliente['cedula']} | Tel: ${cliente['telefono']} | Día: ${cliente['dia_cobro'] ?? _diaSeleccionado}',
+                : _clientes.isEmpty
+                    ? ListView(
+                        children: [
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 40),
+                              child: Text(
+                                _esAdmin
+                                    ? 'No hay clientes registrados'
+                                    : 'No hay clientes para este día',
                               ),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () => _mostrarInfoCliente(cliente),
                             ),
-                          );
-                        }).toList(),
-                      const SizedBox(height: 12),
-                      _buildAlertasCuotasSection(),
-                    ],
-                  ),
+                          ),
+                          _buildAlertasCuotasSection(),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          Expanded(
+                            child: ReorderableListView(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              onReorder: (oldIndex, newIndex) {
+                                setState(() {
+                                  if (newIndex > oldIndex) newIndex--;
+                                  final cliente = _clientes.removeAt(oldIndex);
+                                  _clientes.insert(newIndex, cliente);
+                                });
+                                _guardarOrdenClientes();
+                              },
+                              buildDefaultDragHandles: false,
+                              children: _clientes.asMap().entries.map((entry) {
+                                final i = entry.key;
+                                final cliente = entry.value;
+                                return Card(
+                                  key: ValueKey(cliente['id']),
+                                  child: ListTile(
+                                    leading: Icon(
+                                      Icons.drag_handle,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                    title: Text(cliente['nombres'] ?? ''),
+                                    subtitle: Text(
+                                      'Cédula: ${cliente['cedula']} | Tel: ${cliente['telefono']} | Día: ${cliente['dia_cobro'] ?? _diaSeleccionado}',
+                                    ),
+                                    trailing: const Icon(Icons.chevron_right),
+                                    onTap: () => _mostrarInfoCliente(cliente),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                          _buildAlertasCuotasSection(),
+                        ],
+                      ),
           ),
         ],
       ),
@@ -5456,6 +5528,7 @@ class DesarrolladorScreen extends StatefulWidget {
 
 class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
   List _admins = [];
+  List _solicitudes = [];
   bool _isLoading = true;
 
   final List<String> _todosDias = [
@@ -5466,6 +5539,7 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
   void initState() {
     super.initState();
     _cargarUsuarios();
+    _cargarSolicitudes();
   }
 
   Future<void> _cargarUsuarios() async {
@@ -5486,6 +5560,52 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
       }
     } catch (_) {}
     setState(() => _isLoading = false);
+    _cargarSolicitudes();
+  }
+
+  Future<void> _cargarSolicitudes() async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/desarrollador/solicitudes?usuario_id=${SessionGlobal.usuarioId}',
+        ),
+      );
+      if (response.statusCode == 200) {
+        setState(() => _solicitudes = jsonDecode(response.body) as List);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _procesarSolicitud(int solicitudId, String accion) async {
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/desarrollador/aprobar-solicitud?usuario_id=${SessionGlobal.usuarioId}',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'solicitud_id': solicitudId, 'accion': accion}),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(data['mensaje'] ?? 'Solicitud procesada'),
+              backgroundColor: accion == 'aprobar' ? Colors.green : Colors.orange,
+            ),
+          );
+        }
+        _cargarSolicitudes();
+        _cargarUsuarios();
+      } else {
+        final err = jsonDecode(response.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(err['detail'] ?? 'Error')),
+          );
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _cargarDiasAdmin(dynamic admin) async {
@@ -5561,13 +5681,91 @@ class _DesarrolladorScreenState extends State<DesarrolladorScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Panel Desarrollador'), backgroundColor: Colors.red),
       body: RefreshIndicator(
-        onRefresh: _cargarUsuarios,
+        onRefresh: () async { await _cargarUsuarios(); await _cargarSolicitudes(); },
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : ListView.builder(
-                itemCount: _admins.length,
+                itemCount: _admins.length + (_solicitudes.isNotEmpty ? 1 : 0),
                 itemBuilder: (_, i) {
-                  final admin = _admins[i];
+                  if (_solicitudes.isNotEmpty && i == 0) {
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      color: Colors.orange.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.pending_actions, color: Colors.orange.shade700, size: 22),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Solicitudes Pendientes (${_solicitudes.length})',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: Colors.orange.shade800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            ..._solicitudes.map((s) => Card(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(10),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(s['nombres'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                        Text(s['email'] ?? '', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                        if ((s['mensaje'] ?? '').isNotEmpty) ...[
+                                          const SizedBox(height: 6),
+                                          Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.grey.shade100,
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Row(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Icon(Icons.message, size: 14, color: Colors.grey.shade600),
+                                                const SizedBox(width: 6),
+                                                Expanded(child: Text(s['mensaje'], style: const TextStyle(fontSize: 12))),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.end,
+                                          children: [
+                                            TextButton.icon(
+                                              onPressed: () => _procesarSolicitud(s['id'], 'aprobar'),
+                                              icon: const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                                              label: const Text('Aprobar', style: TextStyle(color: Colors.green)),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            TextButton.icon(
+                                              onPressed: () => _procesarSolicitud(s['id'], 'rechazar'),
+                                              icon: const Icon(Icons.cancel, color: Colors.red, size: 18),
+                                              label: const Text('Rechazar', style: TextStyle(color: Colors.red)),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                )),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                  final adminIndex = _solicitudes.isNotEmpty ? i - 1 : i;
+                  final admin = _admins[adminIndex];
                   final workers = admin['trabajadores'] as List;
                   return Card(
                     margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

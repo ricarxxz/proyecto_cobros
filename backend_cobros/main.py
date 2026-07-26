@@ -65,6 +65,7 @@ class Cliente(Base):
     fecha_creacion = Column(DateTime, default=datetime.utcnow)
     activo = Column(Boolean, default=True)
     dia_cobro = Column(String, default="lunes")  # Día de cobro: lunes, martes, ...
+    orden = Column(Integer, default=0)  # Para reordenar clientes manualmente
 
 
 class TrabajadorDia(Base):
@@ -148,6 +149,16 @@ class AdminDiaRegistro(Base):
     admin_id = Column(Integer, index=True)
     dia = Column(String)
 
+class SolicitudRegistro(Base):
+    __tablename__ = "solicitudes_registro"
+    id = Column(Integer, primary_key=True, index=True)
+    nombres = Column(String)
+    email = Column(String, unique=True)
+    password_hash = Column(String)
+    mensaje = Column(String, default="")
+    estado = Column(String, default="pendiente")  # pendiente, aprobado, rechazado
+    fecha_solicitud = Column(DateTime, default=datetime.utcnow)
+
 # ============= ESQUEMAS PYDANTIC =============
 
 class UsuarioRegistro(BaseModel):
@@ -155,6 +166,7 @@ class UsuarioRegistro(BaseModel):
     email: str
     password: str
     rol: RolUsuario = RolUsuario.TRABAJADOR
+    mensaje: Optional[str] = ""
 
 class UsuarioLogin(BaseModel):
     email: str
@@ -231,6 +243,14 @@ Base.metadata.create_all(bind=engine)
 try:
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS creado_por INTEGER"))
+        conn.commit()
+except Exception:
+    pass
+
+# Migración: agregar columna orden a clientes si no existe
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE clientes ADD COLUMN IF NOT EXISTS orden INTEGER DEFAULT 0"))
         conn.commit()
 except Exception:
     pass
@@ -315,36 +335,52 @@ def _coerce_bool(value):
 
 @app.post("/api/auth/registro")
 def registro_usuario(usuario: UsuarioRegistro, db: Session = Depends(get_db)):
-    # Solo permite registrar administradores (o el primer usuario será admin)
     usuarios_existentes = db.query(Usuario).count()
-    if usuarios_existentes > 0 and usuario.rol != RolUsuario.ADMINISTRADOR:
-        raise HTTPException(status_code=403, detail="Solo se pueden registrar administradores. Contacte al admin para registrarse como trabajador")
-    
-    # Verificar si el email ya existe
+    desarrolladores = db.query(Usuario).filter(Usuario.rol == RolUsuario.DESARROLLADOR).count()
+
+    # Verificar si el email ya existe en usuarios o solicitudes
     db_usuario = db.query(Usuario).filter(Usuario.email == usuario.email).first()
     if db_usuario:
         raise HTTPException(status_code=400, detail="El email ya está registrado")
-    
-    # Si es el primer usuario, será administrador
-    rol = RolUsuario.ADMINISTRADOR if usuarios_existentes == 0 else usuario.rol
-    
-    nuevo_usuario = Usuario(
-        nombre=usuario.nombres,
-        email=usuario.email,
-        password_hash=hash_password(usuario.password),
-        rol=rol
-    )
-    db.add(nuevo_usuario)
-    db.commit()
-    db.refresh(nuevo_usuario)
-    
-    return {
-        "status": "success",
-        "usuario_id": nuevo_usuario.id,
-        "nombre": nuevo_usuario.nombre,
-        "rol": nuevo_usuario.rol,
-        "mensaje": f"Usuario registrado como {rol}"
-    }
+    solicitud_existente = db.query(SolicitudRegistro).filter(SolicitudRegistro.email == usuario.email, SolicitudRegistro.estado == "pendiente").first()
+    if solicitud_existente:
+        raise HTTPException(status_code=400, detail="Ya hay una solicitud pendiente con este email")
+
+    # Primer usuario siempre se registra directo como administrador
+    if usuarios_existentes == 0:
+        nuevo_usuario = Usuario(
+            nombre=usuario.nombres,
+            email=usuario.email,
+            password_hash=hash_password(usuario.password),
+            rol=RolUsuario.ADMINISTRADOR
+        )
+        db.add(nuevo_usuario)
+        db.commit()
+        db.refresh(nuevo_usuario)
+        return {
+            "status": "success",
+            "usuario_id": nuevo_usuario.id,
+            "nombre": nuevo_usuario.nombre,
+            "rol": nuevo_usuario.rol,
+            "mensaje": "Primer administrador registrado"
+        }
+
+    # Si hay desarrollador, crear solicitud pendiente
+    if desarrolladores > 0:
+        solicitud = SolicitudRegistro(
+            nombres=usuario.nombres,
+            email=usuario.email,
+            password_hash=hash_password(usuario.password),
+            mensaje=usuario.mensaje if hasattr(usuario, 'mensaje') and usuario.mensaje else "",
+        )
+        db.add(solicitud)
+        db.commit()
+        return {
+            "status": "solicitud_creada",
+            "mensaje": "Solicitud enviada. Espera a que el desarrollador la apruebe."
+        }
+
+    raise HTTPException(status_code=403, detail="No hay desarrollador para aprobar tu registro")
 
 @app.post("/api/auth/login")
 def login(credenciales: UsuarioLogin, db: Session = Depends(get_db)):
@@ -603,7 +639,7 @@ def listar_clientes_admin(
     if dia:
         query = query.filter(Cliente.dia_cobro == dia)
 
-    clientes = query.all()
+    clientes = query.order_by(Cliente.orden).all()
     result = []
     for c in clientes:
         item = {
@@ -626,6 +662,18 @@ def listar_clientes_admin(
         result.append(item)
     return result
 
+@app.post("/api/admin/reordenar-clientes")
+def reordenar_clientes(datos: dict, admin_id: int, db: Session = Depends(get_db)):
+    admin = db.query(Usuario).filter(Usuario.id == admin_id).first()
+    if not admin or admin.rol != RolUsuario.ADMINISTRADOR:
+        raise HTTPException(status_code=403, detail="Solo administradores")
+    ordenes = datos.get("ordenes", [])
+    for item in ordenes:
+        cliente_id = item.get("id")
+        orden = item.get("orden", 0)
+        db.query(Cliente).filter(Cliente.id == cliente_id, Cliente.usuario_id == admin_id).update({"orden": orden})
+    db.commit()
+    return {"status": "success"}
 
 @app.get("/api/admin/alertas-cuotas-vencidas")
 def alertas_cuotas_vencidas(admin_id: int, db: Session = Depends(get_db)):
@@ -1310,13 +1358,13 @@ def clientes_por_dia(dia: str, trabajador_id: int = None, usuario_id: int = None
             if not asignacion:
                 raise HTTPException(status_code=403, detail="No tienes asignado este día")
             admin_id = usuario.creado_por
-            clientes = db.query(Cliente).filter(Cliente.dia_cobro == dia, Cliente.activo == True, Cliente.usuario_id == admin_id).all()
+            clientes = db.query(Cliente).filter(Cliente.dia_cobro == dia, Cliente.activo == True, Cliente.usuario_id == admin_id).order_by(Cliente.orden).all()
         elif usuario.rol == RolUsuario.ADMINISTRADOR:
-            clientes = db.query(Cliente).filter(Cliente.dia_cobro == dia, Cliente.activo == True, Cliente.usuario_id == usuario_id).all()
+            clientes = db.query(Cliente).filter(Cliente.dia_cobro == dia, Cliente.activo == True, Cliente.usuario_id == usuario_id).order_by(Cliente.orden).all()
         else:
             raise HTTPException(status_code=403, detail="Usuario no válido")
     elif trabajador_id is not None:
-        clientes = db.query(Cliente).filter(Cliente.dia_cobro == dia, Cliente.activo == True).all()
+        clientes = db.query(Cliente).filter(Cliente.dia_cobro == dia, Cliente.activo == True).order_by(Cliente.orden).all()
     else:
         raise HTTPException(status_code=400, detail="Debe proporcionar trabajador_id o usuario_id")
 
@@ -1746,6 +1794,58 @@ def desarrollador_cambiar_email(datos: dict, usuario_id: int, db: Session = Depe
     target.email = nuevo_email
     db.commit()
     return {"status": "success", "mensaje": "Email actualizado"}
+
+@app.get("/api/desarrollador/solicitudes")
+def desarrollador_listar_solicitudes(usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario or usuario.rol != RolUsuario.DESARROLLADOR:
+        raise HTTPException(status_code=403, detail="Solo desarrolladores")
+    solicitudes = db.query(SolicitudRegistro).filter(SolicitudRegistro.estado == "pendiente").order_by(SolicitudRegistro.fecha_solicitud.desc()).all()
+    return [
+        {
+            "id": s.id,
+            "nombres": s.nombres,
+            "email": s.email,
+            "mensaje": s.mensaje,
+            "fecha_solicitud": s.fecha_solicitud,
+        }
+        for s in solicitudes
+    ]
+
+@app.post("/api/desarrollador/aprobar-solicitud")
+def desarrollador_aprobar_solicitud(datos: dict, usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario or usuario.rol != RolUsuario.DESARROLLADOR:
+        raise HTTPException(status_code=403, detail="Solo desarrolladores")
+    solicitud_id = datos.get("solicitud_id")
+    accion = datos.get("accion")
+    if not solicitud_id or accion not in ("aprobar", "rechazar"):
+        raise HTTPException(status_code=400, detail="solicitud_id y accion (aprobar/rechazar) requeridos")
+    solicitud = db.query(SolicitudRegistro).filter(SolicitudRegistro.id == solicitud_id).first()
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    if solicitud.estado != "pendiente":
+        raise HTTPException(status_code=400, detail="La solicitud ya fue procesada")
+
+    if accion == "rechazar":
+        solicitud.estado = "rechazado"
+        db.commit()
+        return {"status": "success", "mensaje": f"Solicitud de {solicitud.nombres} rechazada"}
+
+    nuevo_usuario = Usuario(
+        nombre=solicitud.nombres,
+        email=solicitud.email,
+        password_hash=solicitud.password_hash,
+        rol=RolUsuario.ADMINISTRADOR
+    )
+    db.add(nuevo_usuario)
+    solicitud.estado = "aprobado"
+    db.commit()
+    return {
+        "status": "success",
+        "usuario_id": nuevo_usuario.id,
+        "mensaje": f"Administrador {solicitud.nombres} creado exitosamente"
+    }
 
 # ============= ENDPOINTS: COBROS =============
 
