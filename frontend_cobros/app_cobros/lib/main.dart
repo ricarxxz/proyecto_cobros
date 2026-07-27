@@ -1693,12 +1693,13 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                 onTap: () async {
                   Navigator.pop(context);
                   if (await verificarBloqueo(context)) return;
-                  Navigator.push(
+                  await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) => const RegistroCobrosScreen(),
                     ),
                   );
+                  _cargarClientesPorDia();
                 },
               ),
               ListTile(
@@ -1707,12 +1708,13 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                 onTap: () async {
                   Navigator.pop(context);
                   if (await verificarBloqueo(context)) return;
-                  Navigator.push(
+                  await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) => const NuevoPrestamoScreen(),
                     ),
                   );
+                  _cargarClientesPorDia();
                 },
               ),
               const Divider(),
@@ -1725,12 +1727,13 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                 onTap: () async {
                   Navigator.pop(context);
                   if (await verificarBloqueo(context)) return;
-                  Navigator.push(
+                  await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) => const RegistroCobrosScreen(),
                     ),
                   );
+                  _cargarClientesPorDia();
                 },
               ),
               ListTile(
@@ -1947,8 +1950,16 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                                       ),
                                     ),
                                     title: Text('${i + 1}. ${cliente['nombres'] ?? ''}'),
-                                    subtitle: Text(
-                                      'Cédula: ${cliente['cedula']} | Tel: ${cliente['telefono']} | Día: ${cliente['dia_cobro'] ?? _diaSeleccionado}',
+                                    subtitle: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text('Cédula: ${cliente['cedula']} | Tel: ${cliente['telefono']} | Día: ${cliente['dia_cobro'] ?? _diaSeleccionado}'),
+                                        if (cliente['deuda_total'] != null)
+                                          Text(
+                                            'Deuda: ${formatearDinero(cliente['deuda_total'])}',
+                                            style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold, fontSize: 13),
+                                          ),
+                                      ],
                                     ),
                                     trailing: const Icon(Icons.chevron_right),
                                     onTap: () => _mostrarInfoCliente(cliente),
@@ -4831,26 +4842,30 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
                         if ((_cuotasPendientes[0]['valor_pagado'] ?? 0) > 0)
                           Text(
                             'Pagado: ${formatearDinero(_cuotasPendientes[0]['valor_pagado'])}',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: Colors.green,
-                            ),
+                            style: const TextStyle(fontSize: 13, color: Colors.green),
                           ),
                         Text(
                           'Pendiente: ${formatearDinero(_cuotasPendientes[0]['pendiente'])}',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: (_cuotasPendientes[0]['pendiente'] ?? 0) >
-                                    (_cuotasPendientes[0]['valor'] ?? 0)
+                            color: (_cuotasPendientes[0]['pendiente'] ?? 0) > (_cuotasPendientes[0]['valor'] ?? 0)
                                 ? Colors.red
                                 : Colors.orange.shade800,
                           ),
                         ),
-                        Text(
-                          'Vence: ${_cuotasPendientes[0]['vencimiento']}',
-                          style: const TextStyle(fontSize: 12),
-                        ),
+                        Text('Vence: ${_cuotasPendientes[0]['vencimiento']}', style: const TextStyle(fontSize: 12)),
+                        const SizedBox(height: 8),
+                        if (_cuotasPendientes.length > 1)
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () => _pasarCuota(_cuotasPendientes[0]['id']),
+                              icon: const Icon(Icons.skip_next, size: 18),
+                              label: const Text('Pasar a la siguiente cuota', style: TextStyle(fontSize: 13)),
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -5081,6 +5096,50 @@ class _RegistroCobrosScreenState extends State<RegistroCobrosScreen> {
       ).showSnackBar(SnackBar(content: Text("Error: $e")));
     } finally {
       setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _pasarCuota(int cuotaId) async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await http.post(
+        Uri.parse(
+          'https://proyecto-cobros.onrender.com/api/cobros/gestionar-cuota?cuota_id=$cuotaId&accion=pasar&usuario_id=${SessionGlobal.usuarioId}',
+        ),
+      );
+      if (response.statusCode == 200) {
+        final result = jsonDecode(response.body);
+        if (mounted) {
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Cuota Pasada'),
+              content: Text(result['mensaje'] ?? 'Cuota pasada a la siguiente'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Aceptar'),
+                ),
+              ],
+            ),
+          );
+          _pagoController.clear();
+          _cargarClientePorId(_clienteId!);
+        }
+      } else {
+        final error = jsonDecode(response.body);
+        var msg = 'Error al pasar cuota';
+        if (error['detail'] is String) msg = error['detail'];
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 }
