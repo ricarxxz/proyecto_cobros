@@ -1946,7 +1946,7 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                                         color: Colors.grey.shade400,
                                       ),
                                     ),
-                                    title: Text(cliente['nombres'] ?? ''),
+                                    title: Text('${i + 1}. ${cliente['nombres'] ?? ''}'),
                                     subtitle: Text(
                                       'Cédula: ${cliente['cedula']} | Tel: ${cliente['telefono']} | Día: ${cliente['dia_cobro'] ?? _diaSeleccionado}',
                                     ),
@@ -4206,6 +4206,19 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
       return;
     }
 
+    final cobrarCartulina = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Cobrar cartulina?'),
+        content: const Text('¿Desea cobrar el valor de la cartulina en este préstamo?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sí')),
+        ],
+      ),
+    );
+    if (cobrarCartulina == null) return;
+
     setState(() => _isLoading = true);
 
     try {
@@ -4220,6 +4233,7 @@ class _NuevoPrestamoScreenState extends State<NuevoPrestamoScreen> {
           'interes_porcentaje': _interes,
           'numero_cuotas': int.parse(_cuotasController.text),
           'frecuencia': _frecuencia,
+          'cobrar_cartulina': cobrarCartulina,
         }),
       );
 

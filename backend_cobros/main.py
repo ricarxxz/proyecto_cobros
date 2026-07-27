@@ -1,4 +1,8 @@
+import math
 from fastapi import FastAPI, HTTPException, Depends, Request
+
+def calcular_cartulina(monto: float) -> float:
+    return math.ceil((monto / 100000) * 5000 / 1000) * 1000
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Enum, Date, text
 from sqlalchemy.ext.declarative import declarative_base
@@ -187,6 +191,7 @@ class ClientePrestamoRegistro(BaseModel):
     interes_porcentaje: float = 20.0
     numero_cuotas: int
     frecuencia: FrecuenciaCuota
+    cobrar_cartulina: Optional[bool] = True
 
 class ClienteResponse(BaseModel):
     id: int
@@ -201,6 +206,7 @@ class PrestamoRegistro(BaseModel):
     interes_porcentaje: float = 20.0
     numero_cuotas: int
     frecuencia: FrecuenciaCuota
+    cobrar_cartulina: Optional[bool] = True
 
 class PagoCuotaRegistro(BaseModel):
     cuota_id: int
@@ -235,6 +241,7 @@ class ClienteAnteriorRegistro(BaseModel):
     frecuencia: str = "semanal"
     fecha_prestamo: Optional[datetime] = None
     cuotas: List[CuotaAnteriorDetalle]
+    cobrar_cartulina: Optional[bool] = True
 
 # Crear las tablas (solo create, sin drop)
 Base.metadata.create_all(bind=engine)
@@ -1042,7 +1049,9 @@ def registrar_cliente_con_prestamo(datos: ClientePrestamoRegistro, admin_id: int
     # Crear préstamo
     interes = datos.monto_prestado * (datos.interes_porcentaje / 100)
     total_deuda = datos.monto_prestado + interes
-    valor_cartulina = (datos.monto_prestado / 100000) * 5000
+    valor_cartulina = calcular_cartulina(datos.monto_prestado)
+    if hasattr(datos, 'cobrar_cartulina') and not datos.cobrar_cartulina:
+        valor_cartulina = 0.0
     valor_cuota = total_deuda / datos.numero_cuotas
     
     nuevo_prestamo = Prestamo(
@@ -1132,7 +1141,9 @@ def registrar_cliente_anterior(datos: ClienteAnteriorRegistro, admin_id: int, db
 
     interes = datos.monto_prestado * (datos.interes_porcentaje / 100)
     total_deuda = datos.monto_prestado + interes
-    valor_cartulina = (datos.monto_prestado / 100000) * 5000
+    valor_cartulina = calcular_cartulina(datos.monto_prestado)
+    if not datos.cobrar_cartulina:
+        valor_cartulina = 0.0
 
     fecha_prestamo = datos.fecha_prestamo or datetime.utcnow()
 
@@ -1410,7 +1421,9 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
             # Suma: añadir al préstamo existente y recacular cuotas
             interes = prestamo.monto_prestado * (prestamo.interes_porcentaje / 100)
             nueva_deuda = prestamo.monto_prestado + interes
-            valor_cartulina = (prestamo.monto_prestado / 100000) * 5000
+            valor_cartulina = calcular_cartulina(prestamo.monto_prestado)
+            if not prestamo.cobrar_cartulina:
+                valor_cartulina = 0.0
             
             total_deuda_final = round(deuda_anterior + nueva_deuda, 2)
             valor_cuota = total_deuda_final / prestamo.numero_cuotas
@@ -1476,7 +1489,9 @@ def crear_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = De
     # Crear nuevo préstamo (sin deuda activa o refinanciación)
     interes = prestamo.monto_prestado * (prestamo.interes_porcentaje / 100)
     total_deuda = prestamo.monto_prestado + interes
-    valor_cartulina = (prestamo.monto_prestado / 100000) * 5000
+    valor_cartulina = calcular_cartulina(prestamo.monto_prestado)
+    if not prestamo.cobrar_cartulina:
+        valor_cartulina = 0.0
     valor_cuota = total_deuda / prestamo.numero_cuotas
     
     nuevo_prestamo = Prestamo(
@@ -1572,7 +1587,9 @@ def renovar_prestamo(prestamo: PrestamoRegistro, usuario_id: int, db: Session = 
     # Cálculos para nuevo préstamo
     interes = prestamo.monto_prestado * (prestamo.interes_porcentaje / 100)
     total_deuda = prestamo.monto_prestado + interes
-    valor_cartulina = (prestamo.monto_prestado / 100000) * 5000
+    valor_cartulina = calcular_cartulina(prestamo.monto_prestado)
+    if not prestamo.cobrar_cartulina:
+        valor_cartulina = 0.0
     valor_cuota = total_deuda / prestamo.numero_cuotas
     
     # Crear nuevo préstamo
