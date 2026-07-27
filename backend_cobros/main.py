@@ -649,6 +649,11 @@ def listar_clientes_admin(
     clientes = query.order_by(Cliente.orden).all()
     result = []
     for c in clientes:
+        prestamos = db.query(Prestamo).filter(
+            Prestamo.cliente_id == c.id,
+            Prestamo.pagado == False
+        ).all()
+        deuda_total = sum(p.deuda_restante for p in prestamos)
         item = {
             "id": c.id,
             "nombres": c.nombres,
@@ -656,7 +661,8 @@ def listar_clientes_admin(
             "telefono": c.telefono,
             "dia_cobro": c.dia_cobro,
             "activo": c.activo,
-            "fecha_creacion": c.fecha_creacion
+            "fecha_creacion": c.fecha_creacion,
+            "deuda_total": deuda_total
         }
         if frecuencia:
             prestamos = db.query(Prestamo).filter(
@@ -1379,17 +1385,23 @@ def clientes_por_dia(dia: str, trabajador_id: int = None, usuario_id: int = None
     else:
         raise HTTPException(status_code=400, detail="Debe proporcionar trabajador_id o usuario_id")
 
-    return [
-        {
+    result = []
+    for c in clientes:
+        prestamos = db.query(Prestamo).filter(
+            Prestamo.cliente_id == c.id,
+            Prestamo.pagado == False
+        ).all()
+        deuda_total = sum(p.deuda_restante for p in prestamos)
+        result.append({
             "id": c.id,
             "nombres": c.nombres,
             "cedula": c.cedula,
             "telefono": c.telefono,
             "dia_cobro": c.dia_cobro,
             "fecha_creacion": c.fecha_creacion,
-        }
-        for c in clientes
-    ]
+            "deuda_total": deuda_total,
+        })
+    return result
 
 # ============= ENDPOINTS: PRÉSTAMOS =============
 
@@ -2036,6 +2048,30 @@ def gestionar_cuota_cobros(cuota_id: int, accion: str, usuario_id: int, nuevo_po
         prestamo.total_deuda = round((prestamo.total_deuda or 0.0) + aumento, 2)
         db.commit()
         return {"status": "success", "mensaje": f"Cuota aplazada {dias_extra} días con {nuevo_porcentaje}% de interés"}
+    
+    if accion == "pasar":
+        siguiente = db.query(Cuota).filter(
+            Cuota.prestamo_id == prestamo.id,
+            Cuota.numero_cuota > cuota.numero_cuota,
+            Cuota.pagada == False
+        ).order_by(Cuota.numero_cuota).first()
+        if not siguiente:
+            raise HTTPException(status_code=400, detail="No hay una siguiente cuota para pasar")
+        monto_a_pasar = cuota.valor_pendiente or cuota.valor_cuota
+        siguiente.valor_cuota = round(siguiente.valor_cuota + monto_a_pasar, 2)
+        siguiente.valor_pendiente = round(siguiente.valor_pendiente + monto_a_pasar, 2)
+        cuota.valor_pendiente = 0
+        cuota.valor_pagado = 0
+        cuota.pagada = True
+        total_pendiente = db.query(func.coalesce(func.sum(Cuota.valor_pendiente), 0)).filter(
+            Cuota.prestamo_id == prestamo.id, Cuota.pagada == False
+        ).scalar()
+        prestamo.deuda_restante = round(float(total_pendiente), 2)
+        if prestamo.deuda_restante == 0:
+            prestamo.pagado = True
+            prestamo.fecha_finalizacion = datetime.utcnow()
+        db.commit()
+        return {"status": "success", "mensaje": f"Cuota #{cuota.numero_cuota} pasada a la cuota #{siguiente.numero_cuota}"}
     
     raise HTTPException(status_code=400, detail="Acción no soportada")
 
