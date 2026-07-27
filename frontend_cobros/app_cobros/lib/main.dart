@@ -763,6 +763,162 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
     } catch (_) {}
   }
 
+  Future<void> _desactivar(int userId, String nombre) async {
+    await http.post(Uri.parse(
+      'https://proyecto-cobros.onrender.com/api/desarrollador/desactivar-usuario?usuario_id=${SessionGlobal.usuarioId}&target_id=$userId',
+    ));
+    _cargarDevUsuarios();
+  }
+
+  Future<void> _activar(int userId, String nombre) async {
+    await http.post(Uri.parse(
+      'https://proyecto-cobros.onrender.com/api/desarrollador/activar-usuario?usuario_id=${SessionGlobal.usuarioId}&target_id=$userId',
+    ));
+    _cargarDevUsuarios();
+  }
+
+  Future<void> _eliminar(int userId, String nombre) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirmar'),
+        content: Text('¿Eliminar a $nombre permanentemente?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Eliminar')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await http.post(Uri.parse(
+        'https://proyecto-cobros.onrender.com/api/desarrollador/eliminar-usuario?usuario_id=${SessionGlobal.usuarioId}&target_id=$userId',
+      ));
+      _cargarDevUsuarios();
+    }
+  }
+
+  Future<void> _mostrarOpcionesUsuario(int id, String nombre, String email, bool activo) async {
+    final accion = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(nombre),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Email: $email', style: const TextStyle(color: Colors.grey)),
+            const SizedBox(height: 8),
+            Text('Estado: ${activo ? "Activo" : "Inactivo"}',
+                style: TextStyle(color: activo ? Colors.green : Colors.red)),
+            const Divider(),
+            _opcionDialog(ctx, 'Cambiar email', Icons.email, Colors.blue, 'cambiar_email'),
+            _opcionDialog(ctx, 'Cambiar contraseña', Icons.lock_reset, Colors.purple, 'cambiar_pass'),
+            _opcionDialog(ctx, activo ? 'Desactivar' : 'Activar', Icons.block, Colors.orange, 'toggle_activo'),
+            _opcionDialog(ctx, 'Eliminar permanentemente', Icons.delete_forever, Colors.red, 'eliminar'),
+          ],
+        ),
+      ),
+    );
+    if (accion == null) return;
+    switch (accion) {
+      case 'cambiar_email':
+        await _cambiarEmail(id, nombre);
+        break;
+      case 'cambiar_pass':
+        await _cambiarContrasena(id, nombre);
+        break;
+      case 'toggle_activo':
+        activo ? _desactivar(id, nombre) : _activar(id, nombre);
+        break;
+      case 'eliminar':
+        _eliminar(id, nombre);
+        break;
+    }
+  }
+
+  Widget _opcionDialog(BuildContext ctx, String texto, IconData icono, Color color, String valor) {
+    return InkWell(
+      onTap: () => Navigator.pop(ctx, valor),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            Icon(icono, color: color, size: 22),
+            const SizedBox(width: 12),
+            Text(texto, style: const TextStyle(fontSize: 15)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _cambiarEmail(int userId, String nombre) async {
+    final controller = TextEditingController();
+    final nuevoEmail = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Cambiar email de $nombre'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'Nuevo email', border: OutlineInputBorder()),
+          keyboardType: TextInputType.emailAddress,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    if (nuevoEmail == null || nuevoEmail.isEmpty) return;
+    try {
+      final resp = await http.post(
+        Uri.parse('https://proyecto-cobros.onrender.com/api/desarrollador/cambiar-email?usuario_id=${SessionGlobal.usuarioId}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'target_id': userId, 'nuevo_email': nuevoEmail}),
+      );
+      if (resp.statusCode == 200 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Email actualizado'), backgroundColor: Colors.green));
+        _cargarDevUsuarios();
+      } else {
+        final err = jsonDecode(resp.body);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err['detail'] ?? 'Error')));
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _cambiarContrasena(int userId, String nombre) async {
+    final controller = TextEditingController();
+    final nuevaPass = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Cambiar contraseña de $nombre'),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: 'Nueva contraseña', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    if (nuevaPass == null || nuevaPass.isEmpty) return;
+    try {
+      final resp = await http.post(
+        Uri.parse('https://proyecto-cobros.onrender.com/api/desarrollador/cambiar-contrasena?usuario_id=${SessionGlobal.usuarioId}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'target_id': userId, 'nueva_contrasena': nuevaPass}),
+      );
+      if (resp.statusCode == 200 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contraseña actualizada'), backgroundColor: Colors.green));
+      } else {
+        final err = jsonDecode(resp.body);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err['detail'] ?? 'Error')));
+      }
+    } catch (_) {}
+  }
+
   Future<void> _cargarAlertasCuotasVencidas() async {
     if (!mounted) return;
     setState(() => _cargandoAlertas = true);
@@ -1336,6 +1492,13 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                       if (expanded) _cargarDiasAdmin(admin);
                     },
                     children: [
+                      ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.settings, color: Colors.grey),
+                        title: const Text('Opciones del administrador', style: TextStyle(fontSize: 13)),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _mostrarOpcionesUsuario(admin['id'], admin['nombre'], admin['email'], admin['activo']),
+                      ),
                       const Divider(),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
