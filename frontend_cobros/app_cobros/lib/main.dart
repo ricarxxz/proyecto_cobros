@@ -3218,6 +3218,19 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
       return;
     }
 
+    final cobrarCartulina = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Cobrar cartulina?'),
+        content: const Text('¿Desea cobrar el valor de la cartulina en este préstamo?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sí')),
+        ],
+      ),
+    );
+    if (cobrarCartulina == null) return;
+
     setState(() => _isLoading = true);
 
     try {
@@ -3235,6 +3248,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
           'interes_porcentaje': _interes,
           'numero_cuotas': int.parse(_cuotasController.text),
           'frecuencia': _frecuencia,
+          'cobrar_cartulina': cobrarCartulina,
         }),
       );
 
